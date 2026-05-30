@@ -59,8 +59,12 @@ def load_data() -> pd.DataFrame:
 
 def main() -> None:
     # Fail early if no API key — no point rendering the full UI without it.
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
+    # Check .env first, then Streamlit Cloud secrets (st.secrets).
+    # Set os.environ so agent/judge modules can find it too.
+    api_key = os.environ.get("OPENROUTER_API_KEY") or st.secrets.get("OPENROUTER_API_KEY", "")
+    if api_key:
+        os.environ["OPENROUTER_API_KEY"] = api_key
+    else:
         st.error("OPENROUTER_API_KEY not set. Create a .env file with your API key.")
         st.code("OPENROUTER_API_KEY=sk-or-v1-...")
         return
