@@ -39,6 +39,9 @@ uv sync
 # Add your OpenRouter API key
 cp .env.example .env
 # Edit .env → add your OPENROUTER_API_KEY
+
+# Train the churn model (generates artifacts/model_pipeline.pkl)
+uv run python scripts/rebuild_pipeline.py
 ```
 
 ## Key Commands
