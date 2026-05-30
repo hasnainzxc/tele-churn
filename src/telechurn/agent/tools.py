@@ -8,7 +8,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# These models are the contract between the agent graph and the LLM.
+# The LLM sees them as JSON schemas via LangChain's bind_tools(),
+# so field descriptions become part of the tool-calling prompt. Keep 'em tight.
+
 class CustomerProfile(BaseModel):
+    # Flattened view of what the lookup returns. All fields Optional because
+    # the lookup can fail or the dataset is messy and columns go missing.
     customer_id: str
     age: float | None = None
     gender: str | None = None
@@ -29,6 +35,8 @@ class CustomerProfile(BaseModel):
 
 class ChurnPrediction(BaseModel):
     churn_probability: float = Field(..., ge=0.0, le=1.0)
+    # The regex constraint here is belt-and-suspenders — the model already
+    # bins probabilities into tiers, but this catches any output corruption.
     risk_tier: str = Field(..., pattern="^(high|medium|low)$")
     top_risk_factors: list[dict[str, Any]]
 
@@ -48,7 +56,7 @@ class LookupCustomerInput(BaseModel):
 
 class LookupCustomerOutput(BaseModel):
     customer: CustomerProfile | None
-    error: str | None = None
+    error: str | None = None  # non-None when lookup fails (bad ID, missing row, etc.)
 
 
 class PredictChurnInput(BaseModel):
@@ -59,7 +67,7 @@ class PredictChurnInput(BaseModel):
 
 class PredictChurnOutput(BaseModel):
     prediction: ChurnPrediction | None
-    error: str | None = None
+    error: str | None = None  # set if predict_fn blows up (model not loaded, bad features, etc.)
 
 
 class GetRetentionOffersInput(BaseModel):
@@ -93,6 +101,7 @@ class EscalateToSupervisorInput(BaseModel):
         ..., description="Why escalation is needed: legal_threat, complex_dispute, out_of_scope, etc."
     )
     context_summary: str = Field(..., description="Brief summary of conversation and relevant facts")
+    # HACK: defaulting priority to "normal" so the LLM doesn't have to provide it
     priority: str = Field(default="normal", pattern="^(low|normal|high|critical)$")
 
 

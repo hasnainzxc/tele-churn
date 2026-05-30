@@ -44,6 +44,9 @@ from typing import Any
 
 from openai import OpenAI
 
+# Static rubric template — json.dumps handles the test_case/tool_calls insertion.
+# Using a constant avoids re-building the prompt string each call, though .format()
+# is still called per-evaluation. Fine for this scale.
 JUDGE_RUBRIC = """
 You are an evaluator for a customer retention AI agent. Score the agent's response
 on a 1-5 scale for each criterion below. Use the anchored definitions precisely.
@@ -89,6 +92,8 @@ Return ONLY a JSON object. No markdown, no explanation.
 
 
 def get_client() -> OpenAI:
+    # Lazy factory — no caching. Fine for batch eval but would want a singleton
+    # or reuse if doing many evals in a hot loop.
     return OpenAI(
         api_key=os.environ["OPENROUTER_API_KEY"],
         base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
@@ -104,6 +109,9 @@ def evaluate(
     """Run LLM-as-judge evaluation for a single test case."""
     client = get_client()
 
+    # Build the full prompt by stuffing test case, response, and tool calls
+    # into the rubric template. json.dumps for structured fields ensures
+    # proper escaping inside the JSON output format block.
     prompt = JUDGE_RUBRIC.format(
         test_case=json.dumps(test_case, indent=2),
         expected_tools=json.dumps(test_case.get("expected_tools", []), indent=2),
@@ -111,6 +119,8 @@ def evaluate(
         tool_calls=json.dumps(tool_calls, indent=2),
     )
 
+    # temperature=0.0 because we want deterministic scoring, not creative fluff.
+    # max_tokens=512 is plenty for the 4 scores + one reasoning sentence.
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -120,12 +130,16 @@ def evaluate(
 
     content = response.choices[0].message.content or "{}"
     content = content.strip()
+
+    # LLMs love wrapping JSON in ``` fences even when told not to. Strip them.
     if content.startswith("```"):
         content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
 
     try:
         scores = json.loads(content)
     except json.JSONDecodeError:
+        # Judge flaked — return zeros so aggregation still works, but the
+        # raw_output field lets us debug what the model actually returned.
         scores = {
             "factual_correctness": 0,
             "tool_use_appropriateness": 0,
@@ -135,6 +149,8 @@ def evaluate(
             "raw_output": content,
         }
 
+    # Attach metadata so downstream consumers can correlate scores back to
+    # the specific test case and know which judge model was used.
     scores["_model"] = model
     scores["_test_case_id"] = test_case.get("id", "unknown")
     return scores
@@ -145,10 +161,13 @@ def aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
     if not scores:
         return {"error": "No scores to aggregate"}
 
+    # The four dimensions from our rubric — if the judge schema changes,
+    # this list needs updating too (fragile, but explicit is fine here).
     dims = ["factual_correctness", "tool_use_appropriateness", "actionability", "hallucination"]
     agg = {"num_cases": len(scores), "by_dimension": {}}
 
     for dim in dims:
+        # Some cases might be missing a dimension if the judge flaked on just one
         vals = [s[dim] for s in scores if dim in s]
         if vals:
             agg["by_dimension"][dim] = {
@@ -157,6 +176,8 @@ def aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
                 "max": max(vals),
             }
 
+    # Grand mean across the four dimensions — rough but useful for a quick
+    # "how's the agent doing overall" number.
     agg["overall_mean"] = round(
         sum(d["mean"] for d in agg["by_dimension"].values()) / len(agg["by_dimension"]), 2
     )

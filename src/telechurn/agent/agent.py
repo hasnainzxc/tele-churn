@@ -42,6 +42,9 @@ from .tools import (
     RetentionOffer,
 )
 
+# This prompt is the whole steering wheel. The LLM gets it as a SystemMessage
+# every single turn (router + response nodes). Small wording changes here
+# can drastically shift behaviour, so test after any edits.
 SYSTEM_PROMPT = """You are a retention agent for TeleConnect, a telecommunications company.
 Your job is to help retention representatives save at-risk customers.
 
@@ -173,8 +176,12 @@ TOOL_DESCRIPTIONS = [
 
 
 class AgentState(TypedDict):
+    # messages: the full conversation transcript (Human, AI, System, Tool messages).
+    # LangGraph uses this as a rolling context; we append to it in every node.
     messages: list[Any]
+    # Track every tool invocation so the UI can render a trace panel.
     tool_calls_made: list[dict[str, Any]]
+    # Accumulated results from tools — populated lazily as the graph runs.
     customer_profile: dict[str, Any] | None
     churn_prediction: dict[str, Any] | None
     retention_offers: list[dict[str, Any]] | None
@@ -193,6 +200,8 @@ class RetentionAgent:
     ):
         self.model = model
         self.temperature = temperature
+        # df and predict_fn are injected so tests/eval can supply real data.
+        # When None, _execute_* methods fall back to hardcoded mock responses.
         self.df = df
         self.predict_fn = predict_fn
         self.llm = ChatOpenAI(
@@ -201,11 +210,15 @@ class RetentionAgent:
             api_key=os.environ["OPENROUTER_API_KEY"],
             base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         )
+        # bind_tools turns TOOL_DESCRIPTIONS into OpenAI-compatible function-calling format.
+        # This is what lets the LLM emit structured tool_call blocks instead of free text.
         self.llm_with_tools = self.llm.bind_tools(TOOL_DESCRIPTIONS)
 
     def build_graph(self) -> CompiledStateGraph:
+        """Build and compile the ReAct-style state graph. Called once per invoke()."""
         builder = StateGraph(AgentState)
 
+        # Register nodes — one per tool + router + response synth.
         builder.add_node("router", self._router)
         builder.add_node("lookup_customer", self._lookup_customer)
         builder.add_node("predict_churn", self._predict_churn)
@@ -214,7 +227,10 @@ class RetentionAgent:
         builder.add_node("escalate", self._escalate)
         builder.add_node("response", self._response)
 
+        # Entry point — router always fires first.
         builder.add_edge(START, "router")
+
+        # Conditional edges: router decides which tool node (or response/END) to jump to.
         builder.add_conditional_edges("router", self._route_tool, {
             "lookup_customer": "lookup_customer",
             "predict_churn": "predict_churn",
@@ -224,6 +240,9 @@ class RetentionAgent:
             "response": "response",
             END: END,
         })
+
+        # Every tool node loops back to the router after execution.
+        # This is the ReAct loop: think → act → observe → think again.
         builder.add_edge("lookup_customer", "router")
         builder.add_edge("predict_churn", "router")
         builder.add_edge("get_retention_offers", "router")
@@ -233,10 +252,17 @@ class RetentionAgent:
         return builder.compile()
 
     def _router(self, state: AgentState) -> AgentState:
+        """Feed the LLM the full message history + system prompt, get back a decision.
+
+        The LLM either emits tool_calls or a text response. We append whatever it says
+        to the message list and let _route_tool decide what to do with it next.
+        """
         messages = state.get("messages", [])
         if not messages:
             return state
 
+        # Always re-attach the system prompt. LangChain doesn't persist it across
+        # invocations, and we need it fresh every trip through the router.
         system_msg = SystemMessage(content=SYSTEM_PROMPT)
         response = self.llm_with_tools.invoke([system_msg] + messages)
 
@@ -244,16 +270,24 @@ class RetentionAgent:
         return state
 
     def _route_tool(self, state: AgentState) -> str:
+        """Inspect the LLM's last message and return the next node name.
+
+        If the LLM emitted a tool_call → route to the matching tool node.
+        If the LLM emitted plain text → route to "response" to synthesize final answer.
+        """
         messages = state["messages"]
         if not messages:
             return "response"
 
         last_msg = messages[-1]
+        # LLM asked to call a tool — map the tool name to our internal node name.
         if isinstance(last_msg, AIMessage) and hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
             tool_call = last_msg.tool_calls[0]
             name = tool_call["name"]
             if name in {"lookup_customer", "predict_churn", "get_retention_offers",
                         "log_interaction", "escalate_to_supervisor"}:
+                # escalate_to_supervisor → "escalate" is a mismatch between the LLM-facing
+                # tool name and the internal graph node name. This mapping bridges it.
                 return {
                     "lookup_customer": "lookup_customer",
                     "predict_churn": "predict_churn",
@@ -262,7 +296,8 @@ class RetentionAgent:
                     "escalate_to_supervisor": "escalate",
                 }[name]
 
-        # Check if we've exceeded max tool calls (safety valve)
+        # Safety valve: if the LLM gets stuck in a tool-calling loop, force it to
+        # synthesize a response after 6 tool invocations. Prevents infinite ReAct loops.
         tool_count = sum(1 for t in state.get("tool_calls_made", []) if t.get("name"))
         if tool_count >= 6:
             return "response"
@@ -270,12 +305,14 @@ class RetentionAgent:
         return "response"
 
     def _lookup_customer(self, state: AgentState) -> AgentState:
+        """Extract customer_id from LLM args, run lookup, stash result in state."""
         tool_calls = state["messages"][-1].tool_calls
-        tc = tool_calls[0]
+        tc = tool_calls[0]  # we only process the first tool call; batching not needed here
         args = tc["args"]
         customer_id = args.get("customer_id", "")
 
         result = self._execute_lookup(customer_id)
+        # Record the invocation so the UI trace panel can render it.
         state["tool_calls_made"].append({
             "name": "lookup_customer",
             "args": args,
@@ -287,14 +324,19 @@ class RetentionAgent:
         else:
             state["error"] = result.get("error")
 
+        # Feed the result back to the LLM as a ToolMessage so it can decide next steps.
         content = json.dumps(result)
         state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
         return state
 
     def _predict_churn(self, state: AgentState) -> AgentState:
+        """Run churn model on customer data. Falls back to state['customer_profile']
+        if the LLM didn't pass explicit customer_data in args."""
         tool_calls = state["messages"][-1].tool_calls
         tc = tool_calls[0]
         args = tc["args"]
+        # LLM sometimes passes the whole profile, sometimes just an empty dict.
+        # Fall back to whatever we already have in state from the lookup.
         customer_data = args.get("customer_data", state.get("customer_profile", {}))
 
         result = self._execute_predict(customer_data)
@@ -311,6 +353,7 @@ class RetentionAgent:
         return state
 
     def _get_retention_offers(self, state: AgentState) -> AgentState:
+        """Query the offer catalog by risk_tier + contract_type, cap at 5 results."""
         tool_calls = state["messages"][-1].tool_calls
         tc = tool_calls[0]
         args = tc["args"]
@@ -318,6 +361,8 @@ class RetentionAgent:
         contract_type = args.get("contract_type", "Month-to-month")
 
         offers = get_offers(risk_tier, contract_type)
+        # Truncate to 5 — prevents dumping a wall of offers into the LLM context.
+        # The catalog already returns at most a few per combo, but belt-and-suspenders.
         state["tool_calls_made"].append({
             "name": "get_retention_offers",
             "args": args,
@@ -330,6 +375,7 @@ class RetentionAgent:
         return state
 
     def _log_interaction(self, state: AgentState) -> AgentState:
+        """Persist a conversation outcome log. Currently in-memory only (no DB)."""
         tool_calls = state["messages"][-1].tool_calls
         tc = tool_calls[0]
         args = tc["args"]
@@ -345,6 +391,7 @@ class RetentionAgent:
         return state
 
     def _escalate(self, state: AgentState) -> AgentState:
+        """Generate an escalation ticket. Also in-memory; real version would POST to a ticketing API."""
         tool_calls = state["messages"][-1].tool_calls
         tc = tool_calls[0]
         args = tc["args"]
@@ -360,7 +407,11 @@ class RetentionAgent:
         return state
 
     def _response(self, state: AgentState) -> AgentState:
+        """Final synthesis node. Dumps all accumulated tool results into a prompt
+        and asks the LLM to produce a cohesive recommendation for the rep."""
         messages = state.get("messages", [])
+
+        # Gather everything the tools produced across the conversation.
         tool_data = {
             "customer_profile": state.get("customer_profile"),
             "churn_prediction": state.get("churn_prediction"),
@@ -370,6 +421,9 @@ class RetentionAgent:
             "error": state.get("error"),
         }
 
+        # The summary template is deliberately detailed — it acts as a "here's what
+        # you know, now tell the rep what to do" instruction. Without this the LLM
+        # sometimes forgets tool results and goes off-script.
         summary = f"""
 Tool outputs collected:
 {json.dumps(tool_data, indent=2, default=str)}
@@ -380,6 +434,8 @@ If there were errors or conflicting signals, explain them.
 Keep it focused on what the rep should do right now.
 """
         system = SystemMessage(content=SYSTEM_PROMPT)
+        # Use raw llm (not llm_with_tools) here — we don't want the LLM emitting
+        # tool calls in the final response; it should just produce text.
         response = self.llm.invoke([system] + messages + [HumanMessage(content=summary)])
         state["messages"].append(response)
         return state
@@ -387,6 +443,7 @@ Keep it focused on what the rep should do right now.
     def invoke(self, user_message: str) -> dict[str, Any]:
         """Run agent on a single user message and return structured result."""
         graph = self.build_graph()
+        # Initial state — empty except for the user's message.
         initial_state: AgentState = {
             "messages": [HumanMessage(content=user_message)],
             "tool_calls_made": [],
@@ -397,8 +454,11 @@ Keep it focused on what the rep should do right now.
             "interaction_log": None,
             "error": None,
         }
+        # recursion_limit=20 is generous but safe. Standard ReAct loop is 1-4 tools.
         result = graph.invoke(initial_state, config={"recursion_limit": 20})
 
+        # Extract the final assistant response from the message list.
+        # Walk backwards to find the last AIMessage with content (skipping tool-only ones).
         messages = result.get("messages", [])
         final_response = ""
         for msg in reversed(messages):
@@ -406,6 +466,8 @@ Keep it focused on what the rep should do right now.
                 final_response = msg.content
                 break
             elif isinstance(msg, AIMessage) and msg.content:
+                # Fallback: an AIMessage that has both content and tool_calls.
+                # Use the content portion — the LLM sometimes writes a partial response.
                 final_response = msg.content
                 break
 
@@ -421,6 +483,9 @@ Keep it focused on what the rep should do right now.
         }
 
     def _execute_lookup(self, customer_id: str) -> dict[str, Any]:
+        """Look up customer in the DataFrame or return a hardcoded mock if no df supplied."""
+        # No DataFrame injected → return a canned mock profile for demo/eval.
+        # This is hacky but lets the agent run without a real data pipeline.
         if self.df is None:
             return {"customer": {"customer_id": customer_id, "age": 42, "gender": "Male",
                     "tenure_months": 12.0, "contract_type": "Month-to-month",
@@ -431,14 +496,19 @@ Keep it focused on what the rep should do right now.
                     "payment_method": "Credit card", "num_additional_services": 3,
                     "last_interaction_date": "2024-06-15"}, "error": None}
 
+        # Real lookup path: filter the DataFrame by customer_id.
         row = self.df[self.df["customer_id"] == customer_id]
         if row.empty:
             return {"customer": None, "error": f"Customer {customer_id} not found"}
 
+        # iloc[0] grabs the first match — assumes customer_id is unique.
         r = row.iloc[0].to_dict()
         return {"customer": r, "error": None}
 
     def _execute_predict(self, customer_data: dict[str, Any]) -> dict[str, Any]:
+        """Run churn prediction. Falls back to a static mock if no predict_fn injected."""
+        # No model → return synthetic prediction. Risk tier and factors are hardcoded
+        # to "medium" and generic reasons. Real predict_fn would return actual scores.
         if self.predict_fn is None:
             return {
                 "prediction": {
@@ -453,6 +523,7 @@ Keep it focused on what the rep should do right now.
                 "error": None,
             }
 
+        # Real model path: delegate to the injected predict_fn.
         try:
             result = self.predict_fn(customer_data)
             return {"prediction": result, "error": None}
@@ -460,14 +531,16 @@ Keep it focused on what the rep should do right now.
             return {"prediction": None, "error": str(e)}
 
     def _execute_log(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Generate a log entry with a UUID and UTC timestamp. No persistence — ephemeral."""
         return {
             "log_id": f"LOG-{uuid.uuid4().hex[:8].upper()}",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "logged",
-            **args,
+            **args,  # spread the LLM-provided args (outcome, notes, etc.) into the entry
         }
 
     def _execute_escalate(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Generate an escalation ticket. Also ephemeral — real version hits a ticketing system."""
         return {
             "escalation_id": f"ESC-{uuid.uuid4().hex[:8].upper()}",
             "timestamp": datetime.now(timezone.utc).isoformat(),

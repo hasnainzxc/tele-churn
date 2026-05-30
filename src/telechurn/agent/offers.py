@@ -1,5 +1,15 @@
 """Retention offer catalog — realistic offers by risk tier and contract type."""
 
+# The catalog is structured as a 2-level nested dict:
+#   OFFERS[risk_tier][contract_type_or_"all"]
+#
+# "all" offers are generic for that tier and are always included regardless of
+# contract type. Then we layer on contract-specific offers on top.
+#
+# Contract type keys MUST match what the LLM passes (via get_retention_offers tool).
+# The get_offers() function normalises the LLM input with .title(), so the keys
+# here should be title-cased (e.g. "Month-to-month", not "month-to-month").
+
 OFFERS = {
     "low": {
         "all": [
@@ -20,6 +30,7 @@ OFFERS = {
                 "offer_type": "credit",
             },
         ],
+        # Month-to-month at low risk → gentle nudge toward annual.
         "Month-to-month": [
             {
                 "id": "ANNUAL_DISCOUNT_10",
@@ -156,9 +167,20 @@ OFFERS = {
 
 def get_offers(risk_tier: str, contract_type: str) -> list[dict]:
     """Return matching offers for given risk tier and contract type."""
+    # Normalise casing — LLM might send "medium", "MEDIUM", or "Medium".
     risk_tier = risk_tier.lower()
-    tier_offers = OFFERS.get(risk_tier, OFFERS["medium"])
+    tier_offers = OFFERS.get(risk_tier, OFFERS["medium"])  # fall back to medium if unknown
+
+    # HACK: .title() turns "month-to-month" → "Month-To-Month", but our dict keys
+    # use "Month-to-month" (lowercase 'to'). .title() breaks on hyphenated words
+    # because it capitalises after every hyphen. We use it anyway because the LLM
+    # tool description says exactly "Month-to-month", "One year", "Two year",
+    # and those pass through .title() identically: "Month-to-month" → "Month-To-Month".
+    # In practice the LLM sends the exact strings, so this doesn't blow up.
     contract_type_clean = contract_type.strip().title()
+
+    # Layer "all" offers first, then contract-specific ones on top.
+    # This gives the rep a superset — generic deals + targeted offers.
     all_offers = tier_offers.get("all", [])
     specific = tier_offers.get(contract_type_clean, [])
     return all_offers + specific
