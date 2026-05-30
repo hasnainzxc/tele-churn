@@ -64,7 +64,8 @@ def parameter_extraction_precision(
         for key, expected_val in e_params.items():
             total_params += 1
             # If the tool wasn't called at all, param is None — no match
-            actual_val = a_tool.get("params", {}).get(key) if a_tool else None
+            # tool_calls_made uses "args" key, not "params"
+            actual_val = a_tool.get("args", {}).get(key) if a_tool else None
             # Coerce both to strings for comparison; handles int/float/str mismatches
             is_match = str(actual_val) == str(expected_val) if actual_val is not None else False
             if is_match:

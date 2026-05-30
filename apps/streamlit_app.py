@@ -30,7 +30,7 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     # Model dropdown — could add more from OpenRouter but these three cover
     # the common quality/cost tiers well enough.
-    model = st.selectbox("Model", ["anthropic/claude-3.5-sonnet", "openai/gpt-4o", "openai/gpt-4o-mini"], index=0)
+    model = st.selectbox("Model", ["openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-2.5-flash"], index=0)
     st.divider()
     st.header("📋 Instructions")
     st.markdown("""

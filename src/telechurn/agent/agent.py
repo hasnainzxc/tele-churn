@@ -16,7 +16,12 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+
+_load_dotenv = load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -178,7 +183,7 @@ class AgentState(TypedDict):
 class RetentionAgent:
     def __init__(
         self,
-        model: str = "anthropic/claude-3.5-sonnet",
+        model: str = "openai/gpt-4o-mini",
         temperature: float = 0.1,
         df: pd.DataFrame | None = None,
         predict_fn: Any = None,

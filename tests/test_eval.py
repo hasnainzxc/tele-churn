@@ -38,13 +38,13 @@ class TestToolSelectionAccuracy:
 class TestParameterExtraction:
     def test_exact_match(self):
         expected = [{"name": "lookup", "key_params": {"id": "TC-001"}}]
-        actual = [{"name": "lookup", "params": {"id": "TC-001"}}]
+        actual = [{"name": "lookup", "args": {"id": "TC-001"}}]
         result = parameter_extraction_precision(expected, actual)
         assert result["score"] == 1.0
 
     def test_mismatch(self):
         expected = [{"name": "lookup", "key_params": {"id": "TC-001"}}]
-        actual = [{"name": "lookup", "params": {"id": "TC-002"}}]
+        actual = [{"name": "lookup", "args": {"id": "TC-002"}}]
         result = parameter_extraction_precision(expected, actual)
         assert result["score"] == 0.0
 
