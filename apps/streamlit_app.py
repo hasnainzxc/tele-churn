@@ -6,7 +6,6 @@ Shows:
 - Full agent response
 """
 
-import json
 import os
 import sys
 
@@ -19,8 +18,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dotenv import load_dotenv
 
+# load_dotenv() runs before telechurn imports — agent module reads env at import time
 load_dotenv()
-from telechurn.agent.agent import RetentionAgent
+from telechurn.agent.agent import RetentionAgent  # noqa: E402
+from telechurn.predict import predict_churn  # noqa: E402
 
 st.set_page_config(page_title="TeleConnect Retention Agent", page_icon="📞", layout="wide")
 st.title("📞 TeleConnect Retention Agent")
@@ -80,7 +81,7 @@ def main() -> None:
     # That's a known quirk — you need to clear cache or add a model-changed
     # check if it matters.
     if "agent" not in st.session_state:
-        st.session_state.agent = RetentionAgent(model=model, df=df)
+        st.session_state.agent = RetentionAgent(model=model, df=df, predict_fn=predict_churn)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
