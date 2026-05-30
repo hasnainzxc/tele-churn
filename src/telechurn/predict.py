@@ -9,7 +9,6 @@ import pickle
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 # pipeline artifact lives two dirs up from this file

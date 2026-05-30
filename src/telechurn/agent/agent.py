@@ -16,7 +16,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -26,21 +26,6 @@ from langgraph.graph.state import CompiledStateGraph
 from typing_extensions import TypedDict
 
 from .offers import get_offers
-from .tools import (
-    ChurnPrediction,
-    CustomerProfile,
-    EscalateToSupervisorInput,
-    EscalateToSupervisorOutput,
-    GetRetentionOffersInput,
-    GetRetentionOffersOutput,
-    LogInteractionInput,
-    LogInteractionOutput,
-    LookupCustomerInput,
-    LookupCustomerOutput,
-    PredictChurnInput,
-    PredictChurnOutput,
-    RetentionOffer,
-)
 
 # This prompt is the whole steering wheel. The LLM gets it as a SystemMessage
 # every single turn (router + response nodes). Small wording changes here
@@ -207,7 +192,7 @@ class RetentionAgent:
         self.llm = ChatOpenAI(
             model=model,
             temperature=temperature,
-            api_key=os.environ["OPENROUTER_API_KEY"],
+            api_key=os.environ.get("OPENROUTER_API_KEY", "sk-placeholder"),
             base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         )
         # bind_tools turns TOOL_DESCRIPTIONS into OpenAI-compatible function-calling format.
