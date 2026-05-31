@@ -14,6 +14,8 @@ from sklearn.pipeline import Pipeline
 
 ARTIFACT_PATH = Path(__file__).parent.parent.parent / "artifacts" / "model_pipeline.pkl"
 
+RISK_THRESHOLDS = {"high": 0.6, "medium": 0.3}
+
 # Notebok-style category maps — canonical forms are Title Case with spaces.
 # predict.py used underscores before; the encoder was trained on Title Case.
 _CATEGORY_MAPS: dict[str, dict[str, str]] = {
@@ -234,9 +236,9 @@ def predict_churn(customer_data: dict[str, Any]) -> dict:
 
     proba = float(pipeline.predict_proba(x)[0, 1])
 
-    if proba >= 0.6:
+    if proba >= RISK_THRESHOLDS["high"]:
         risk_tier = "high"
-    elif proba >= 0.3:
+    elif proba >= RISK_THRESHOLDS["medium"]:
         risk_tier = "medium"
     else:
         risk_tier = "low"

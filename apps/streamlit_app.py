@@ -10,8 +10,10 @@ Modern chat interface with:
 
 from __future__ import annotations
 
+import html
 import os
 import sys
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -35,274 +37,8 @@ st.set_page_config(
 
 # ── Theme CSS ────────────────────────────────────────────────────────────
 
-_CSS = """
-<style>
-/* ── Global ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-.stApp {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-}
-
-/* ── Header ── */
-.tele-header {
-    padding: 1.5rem 2rem;
-    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-    border-bottom: 1px solid rgba(56, 189, 248, 0.15);
-    margin-bottom: 1.5rem;
-}
-.tele-header h1 {
-    color: #e2e8f0;
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 1.5rem;
-    margin: 0;
-}
-.tele-header .subtitle {
-    color: #94a3b8;
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
-}
-
-/* ── Sidebar ── */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1a2332 0%, #15202b 100%);
-    border-right: 1px solid rgba(56, 189, 248, 0.08);
-}
-section[data-testid="stSidebar"] * {
-    color: #cbd5e1 !important;
-}
-section[data-testid="stSidebar"] h3 {
-    color: #38bdf8 !important;
-    font-weight: 600;
-}
-
-/* ── Chat messages ── */
-.stChatMessage {
-    background: transparent !important;
-    padding: 0 !important;
-}
-.chat-bubble {
-    max-width: 85%;
-    padding: 1rem 1.25rem;
-    border-radius: 16px;
-    line-height: 1.6;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.95rem;
-    animation: fadeIn 0.3s ease;
-}
-.chat-bubble.user {
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
-    color: #f1f5f9;
-    margin-left: auto;
-    margin-right: 1rem;
-    border-bottom-right-radius: 4px;
-}
-.chat-bubble.assistant {
-    background: #1e293b;
-    color: #e2e8f0;
-    border: 1px solid rgba(56, 189, 248, 0.15);
-    margin-right: auto;
-    margin-left: 1rem;
-    border-bottom-left-radius: 4px;
-}
-
-/* ── Risk gauge ── */
-.risk-gauge {
-    background: #1e293b;
-    border: 1px solid rgba(56, 189, 248, 0.12);
-    border-radius: 14px;
-    padding: 1.25rem;
-    margin: 0.75rem 1rem;
-}
-.risk-gauge .label {
-    color: #94a3b8;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.5rem;
-}
-.risk-gauge .value-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-.risk-gauge .pct {
-    font-size: 2rem;
-    font-weight: 700;
-    font-family: 'Inter', sans-serif;
-}
-.risk-gauge .tier-badge {
-    display: inline-block;
-    padding: 0.3rem 0.85rem;
-    border-radius: 99px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-}
-.risk-gauge .tier-high {
-    background: rgba(239, 68, 68, 0.15);
-    color: #fca5a5;
-    border: 1px solid rgba(239, 68, 68, 0.25);
-}
-.risk-gauge .tier-medium {
-    background: rgba(251, 191, 36, 0.15);
-    color: #fde68a;
-    border: 1px solid rgba(251, 191, 36, 0.25);
-}
-.risk-gauge .tier-low {
-    background: rgba(34, 197, 94, 0.15);
-    color: #86efac;
-    border: 1px solid rgba(34, 197, 94, 0.25);
-}
-.risk-gauge .factors {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.6rem;
-}
-.risk-gauge .factor-chip {
-    background: rgba(56, 189, 248, 0.08);
-    color: #7dd3fc;
-    border: 1px solid rgba(56, 189, 248, 0.15);
-    padding: 0.25rem 0.65rem;
-    border-radius: 99px;
-    font-size: 0.78rem;
-}
-
-/* ── Tool cards ── */
-.tool-card {
-    background: #1a2332;
-    border: 1px solid rgba(56, 189, 248, 0.1);
-    border-radius: 10px;
-    padding: 0.9rem 1.1rem;
-    margin: 0.5rem 0;
-    transition: border-color 0.2s;
-}
-.tool-card:hover {
-    border-color: rgba(56, 189, 248, 0.3);
-}
-.tool-card .tool-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.65rem;
-}
-.tool-card .tool-icon {
-    font-size: 1.1rem;
-}
-.tool-card .tool-name {
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: #38bdf8;
-}
-.tool-card .tool-detail {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
-}
-.tool-card .tool-section-label {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    margin-bottom: 0.25rem;
-}
-.tool-card pre {
-    background: #0f172a;
-    border-radius: 6px;
-    padding: 0.55rem 0.7rem;
-    color: #94a3b8;
-    font-size: 0.75rem;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-    max-height: 180px;
-    overflow-y: auto;
-}
-
-/* ── Welcome screen ── */
-.welcome-screen {
-    text-align: center;
-    padding: 4rem 2rem;
-    max-width: 560px;
-    margin: 0 auto;
-}
-.welcome-screen .icon {
-    font-size: 3.5rem;
-    margin-bottom: 1rem;
-}
-.welcome-screen h2 {
-    color: #e2e8f0;
-    font-weight: 700;
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
-}
-.welcome-screen .desc {
-    color: #94a3b8;
-    font-size: 0.9rem;
-    line-height: 1.6;
-    margin-bottom: 2rem;
-}
-.welcome-prompt-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
-    max-width: 480px;
-    margin: 0 auto;
-}
-.welcome-prompt-btn {
-    background: #1e293b;
-    border: 1px solid rgba(56, 189, 248, 0.12);
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-    text-align: left;
-    color: #cbd5e1;
-    font-size: 0.82rem;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.welcome-prompt-btn:hover {
-    border-color: #38bdf8;
-    background: #233044;
-}
-
-/* ── Overrides ── */
-.stChatInput textarea {
-    background: #1e293b !important;
-    color: #e2e8f0 !important;
-    border: 1px solid rgba(56, 189, 248, 0.15) !important;
-    border-radius: 12px !important;
-}
-.stChatInput textarea::placeholder {
-    color: #475569 !important;
-}
-div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
-    gap: 0 !important;
-}
-.st-emotion-cache-1j04bjo, .st-emotion-cache-1gulkj5 {
-    background: transparent !important;
-}
-.stMarkdown p, .stMarkdown li {
-    color: #cbd5e1;
-}
-hr {
-    border-color: rgba(56, 189, 248, 0.08) !important;
-}
-
-/* ── Animations ── */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.5; }
-}
-</style>
-"""
+_STYLE_PATH = Path(__file__).parent / "style.css"
+_CSS = _STYLE_PATH.read_text() if _STYLE_PATH.exists() else ""
 
 # ── Tool metadata ────────────────────────────────────────────────────────
 
@@ -315,10 +51,10 @@ _TOOL_META: dict[str, dict[str, str]] = {
 }
 
 
-def _risk_color(proba: float) -> tuple[str, str, str]:
-    if proba >= 0.6:
+def _risk_color(tier: str) -> tuple[str, str, str]:
+    if tier == "high":
         return "#fca5a5", "high", "tier-high"
-    if proba >= 0.3:
+    if tier == "medium":
         return "#fde68a", "medium", "tier-medium"
     return "#86efac", "low", "tier-low"
 
@@ -327,14 +63,14 @@ def _render_risk_gauge(prediction: dict) -> None:
     proba = prediction.get("churn_probability", 0)
     tier = prediction.get("risk_tier", "unknown")
     factors = prediction.get("top_risk_factors", [])
-    pct_color, _, tier_class = _risk_color(proba)
+    pct_color, _, tier_class = _risk_color(tier)
 
     html = f"""
     <div class="risk-gauge">
         <div class="label">Churn Probability</div>
         <div class="value-row">
             <span class="pct" style="color:{pct_color}">{proba * 100:.1f}%</span>
-            <span class="tier-badge {tier_class}">{tier.upper()} RISK</span>
+            <span class="tier-badge {tier_class}">{html.escape(tier.upper())} RISK</span>
         </div>
     """
     bar = (
@@ -353,7 +89,7 @@ def _render_risk_gauge(prediction: dict) -> None:
     if factors:
         html += '<div class="factors">'
         for f in factors:
-            html += f'<span class="factor-chip">{f["feature"]}</span>'
+            html += f'<span class="factor-chip">{html.escape(f["feature"])}</span>'
         html += "</div>"
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
@@ -386,7 +122,7 @@ def _render_chat_message(role: str, content: str, tool_trace: list | None = None
     bubble_class = "user" if role == "user" else "assistant"
     with st.chat_message(role):
         st.markdown(
-            f'<div class="chat-bubble {bubble_class}">{content}</div>',
+            f'<div class="chat-bubble {bubble_class}">{html.escape(content)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -491,7 +227,7 @@ def _get_api_key() -> str | None:
 
 
 def main() -> None:
-    st.markdown(_CSS, unsafe_allow_html=True)
+    st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)
 
     # ── Header ──
     st.markdown("""
