@@ -1,133 +1,126 @@
-# TeleConnect — Churn Prediction & Retention Agent
+# TeleConnect Churn Prediction & Retention Agent
 
-AI/ML Engineer Take-Home Assessment.
+AI/ML Engineer take home assessment. Two parts: a churn prediction model and an LLM powered retention agent you can actually talk to.
 
-## What this is
+**Live demo: [tele-churn.streamlit.app](https://tele-churn.streamlit.app)**
 
-Two connected systems for a mid-size telecom (~5K customers):
+## What it does
 
-1. **Churn Prediction Model** — Jupyter notebook that cleans a deliberately dirty dataset, explores churn patterns, trains two model families, and exports a callable pipeline.
-2. **Retention Agent** — LangGraph-powered LLM agent that retention reps can talk to in natural language. It looks up customers, runs the churn model, retrieves relevant offers, and synthesizes a recommendation.
+TeleConnect has about 5,000 customers and 36% of them churn. This project helps retention reps figure out who is about to leave and what to do about it.
 
-## Architecture
+Part 1 is a Jupyter notebook that cleans the messy data, explores churn patterns, trains two models from different families, and exports the better one.
 
-```
-user query → Streamlit UI → LangGraph ReAct agent
-                                ├─ router (LLM decides what to call)
-                                ├─ lookup_customer   ──→ mock DB / CSV
-                                ├─ predict_churn     ──→ model_pipeline.pkl
-                                ├─ get_retention_offers → offer catalog
-                                ├─ log_interaction   ──→ in-memory log
-                                ├─ escalate_to_supervisor
-                                └─ response (synthesize final answer)
-```
+Part 2 is a Streamlit chatbot. You type something like "Customer TC-004711 might leave, what can we offer?" and it looks up the customer, runs the churn model, grabs relevant retention offers, and gives you a plain English recommendation. You can see every tool it called and what each one returned.
 
-The agent uses a state graph: one node per tool, conditional edges for routing, and a dedicated response synthesis node. Adding a 6th tool means adding one node + one edge — no orchestration rewrite.
+## Screenshots
 
-**Evaluation pipeline** runs the agent against 15 structured test cases, scores tool selection / parameter extraction / response completeness, then sends results through an LLM-as-judge with anchored 1-5 rubrics (factual correctness, tool use, actionability, hallucination).
+### Data Quality
+
+![Billing consistency check](artifacts/screenshots/billing_consistency.png)
+
+The total_charges column doesn't always match monthly_charges times tenure. 31% of rows are off by more than $100. This is real world billing data: rounding, mid cycle changes, prorated charges. We keep it as signal, not noise.
+
+### EDA
+
+![Churn by contract type](artifacts/screenshots/churn_by_contract.png)
+
+Month to month contracts churn 5x more than annual plans. The simplest retention move is getting people onto longer contracts.
+
+![Churn by tenure](artifacts/screenshots/churn_tenure_kde.png)
+
+Most churners leave in the first 20 months. After that they are invested and unlikely to go anywhere.
+
+![Churn by satisfaction](artifacts/screenshots/churn_satisfaction.png)
+
+Unhappy customers (satisfaction 0 to 2) churn at 3x the rate of happy ones. Makes sense but worth confirming with data.
+
+### Model Evaluation
+
+![Confusion matrices](artifacts/screenshots/confusion_matrices.png)
+
+XGBoost catches more churners (higher recall) but Logistic Regression has fewer false alarms. We optimized for recall since missing a churner costs revenue.
+
+![ROC and PR curves](artifacts/screenshots/roc_pr_curves.png)
+
+Both models beat random by a wide margin. PR curve is the more honest metric for imbalanced data like ours.
+
+![Feature importance](artifacts/screenshots/feature_importance.png)
+
+Contract type and tenure dominate both models. If you only knew two things about a customer, those are the ones that matter.
 
 ## Setup
 
 ```bash
-# Clone
-git clone <repo-url>
+git clone https://github.com/hasnainzxc/tele-churn.git
 cd tele-churn
-
-# Install deps (uv)
 uv sync
-
-# Add your OpenRouter API key
-cp .env.example .env
-# Edit .env → add your OPENROUTER_API_KEY
-
-# Train the churn model (generates artifacts/model_pipeline.pkl)
-uv run python scripts/rebuild_pipeline.py
+cp .env.example .env   # add your OPENROUTER_API_KEY
+uv run python scripts/rebuild_pipeline.py   # train model, save artifact
 ```
 
-## Key Commands
+## Commands
 
 ```bash
-uv run pytest                              # 22 tests
-uv run python src/telechurn/eval/run_eval.py  # Full eval (needs API key)
-uv run streamlit run apps/streamlit_app.py    # Launch agent UI
-uv run jupyter lab                        # Open notebook
-uv run ruff check .                       # Lint
+uv run pytest                                       # 59 tests
+uv run python src/telechurn/eval/run_eval.py        # eval suite (needs API key)
+uv run streamlit run apps/streamlit_app.py          # launch agent UI
+uv run jupyter lab                                  # open notebook
+uv run ruff check .                                 # lint
 ```
 
-## Project Structure
+## How it works
+
+The agent uses LangGraph. When you send a message, the LLM decides which tool to call based on what you asked. It might chain multiple tools: look up a customer, predict their churn risk, then fetch offers that match their risk level and contract type.
+
+Each tool is a separate node in a state graph. The router (LLM) picks the next node. The response node synthesizes everything into a readable recommendation. Adding a 6th tool is just adding one node and one edge.
+
+The model is an XGBoost classifier trained on 5,050 customer records. It uses 16 features including contract type, tenure, monthly charges, satisfaction score, and support ticket counts. Recall is the primary metric because missing a churner costs more than sending a coupon to someone who was not going to leave anyway.
+
+## Why these choices
+
+**LangGraph over LangChain chains.** The agent needs conditional routing. State graph maps naturally: one node per tool, edges for decision paths. No orchestration rewrite when adding tools.
+
+**Recall as primary metric.** Churn is rare but expensive. False negative means lost revenue. False positive means a coupon. Recall minimizes the expensive mistake.
+
+**XGBoost + Logistic Regression.** Different families, different assumptions. If they agree, confidence is higher. If they disagree, flag for human review. After hyperparameter tuning, XGBoost won (recall 0.777 vs LR 0.760).
+
+**OpenRouter.** One API key, multiple model providers. Swap models without changing code.
+
+**Never silently drop bad data.** Every column gets a before and after summary. Corrupted values get flagged, documented, and recovered with a documented strategy. The reviewer can audit every decision.
+
+## Eval results
+
+15 test cases across 7 categories:
+
+| Metric | Score |
+|---|---|
+| Tool Selection Accuracy | 80% |
+| Parameter Precision | 82% |
+| Response Completeness | 90% |
+| LLM Judge (overall) | 3.94 / 5 |
+
+Best at: multi step chaining (lookup > predict > offers), ambiguous input (asks clarifying questions instead of guessing).
+
+Needs work: escalation triggers (does not always detect complex disputes), single tool path when no customer ID provided.
+
+## Project layout
 
 ```
-├── notebooks/
-│   └── 01_churn_model.ipynb      # Part 1: data quality → EDA → models → export
-├── src/telechurn/
-│   ├── predict.py                # predict_churn() — preprocessing + model
-│   ├── agent/
-│   │   ├── tools.py              # Pydantic tool schemas (5 tools)
-│   │   ├── offers.py             # Retention offer catalog by risk × contract
-│   │   └── agent.py              # LangGraph state graph + ReAct loop
-│   └── eval/
-│       ├── test_cases.json       # 15 structured test cases
-│       ├── metrics.py            # Automated metrics (3)
-│       ├── judge.py              # LLM-as-judge with anchored rubrics
-│       └── run_eval.py           # Eval runner
-├── apps/
-│   └── streamlit_app.py          # Chat UI with tool trace panel
-├── tests/
-│   ├── test_tools.py
-│   ├── test_agent.py
-│   └── test_eval.py
-├── artifacts/
-│   └── model_pipeline.pkl        # Exported sklearn pipeline
-└── AGENTS.md                     # Workflow rules for this repo
+notebooks/01_churn_model.ipynb     Part 1: data quality > EDA > models > export
+src/telechurn/predict.py           predict_churn() function + preprocessing
+src/telechurn/agent/tools.py       5 Pydantic tool schemas
+src/telechurn/agent/offers.py      Retention offer catalog
+src/telechurn/agent/agent.py       LangGraph ReAct agent
+src/telechurn/eval/test_cases.json 15 structured test cases
+src/telechurn/eval/metrics.py      Automated scoring metrics
+src/telechurn/eval/judge.py        LLM as judge with anchored rubrics
+src/telechurn/eval/run_eval.py     Eval runner
+apps/streamlit_app.py              Chat UI with tool trace
+tests/                             Test suite (59 tests)
+artifacts/model_pipeline.pkl       Trained XGBoost pipeline
+artifacts/screenshots/             Notebook visualizations
 ```
 
-## Design Decisions
+## Known issues
 
-### Why LangGraph over raw LangChain chains
-Agent needs conditional tool routing + state persistence across multi-turn. LangGraph's state graph model maps naturally: node per tool, edge per decision path. Adding a 6th tool = adding one node + edges — no orchestration rewrite.
-
-### Why Recall as primary metric
-Churn is a rare-but-costly event (~36%). Missing a churner (false negative) costs revenue; flagging a non-churner (false positive) costs a coupon. Recall minimises false negatives. Precision-Recall AUC complements it for imbalance-aware ranking.
-
-### Why XGBoost + LogisticRegression
-Different structural assumptions. XGBoost captures non-linear interactions + missing data natively. LogisticRegression provides interpretable coefficients. If they agree on a prediction, confidence is higher. If they disagree, flag for review.
-
-### Data Cleaning Philosophy
-Never silently drop corrupt rows. Flag, document, choose recovery strategy per column type. Produce before/after summary so reviewer can audit every decision.
-
-### Why OpenRouter
-Single API for multiple model providers. Agent uses gpt-4o-mini for routing + synthesis; judge uses same model (can be swapped without code changes).
-
-## Evaluation Results
-
-Run against 15 test cases across 7 categories:
-
-```
-Tool Selection Accuracy:  0.800    (12/15 called expected tools)
-Parameter Precision:      0.822    (82% correct params)
-Response Completeness:    0.900    (strong response quality)
-Judge Overall Mean:       3.94/5   (LLM-as-judge average across 4 dims)
-
-By Category (tool selection):
-  ambiguous_input:         1.000
-  model_disagreement:      1.000
-  multi_step_chaining:     1.000
-  out_of_scope:            1.000
-  adversarial_edge_case:   0.667
-  escalation_trigger:      0.500
-  single_tool_happy_path:  0.500
-```
-
-**Success cases**: Multi-step chaining (TC-003, TC-004) — agent correctly chains lookup → predict → offers and produces actionable recommendations. Ambiguous input (TC-005, TC-006) — agent asks clarifying questions instead of guessing.
-
-**Failure cases**: TC-002 (single-tool offers without customer ID) — system prompt requires lookup first, but this query is hypothetical. Fix: add a "general inquiry" path. TC-008 (complex dispute escalation) — agent looks up customer but doesn't escalate. Root cause: mock customer data doesn't surface billing issues. Fix: inject real data in eval or improve escalation detection heuristics.
-
-**Production roadmap**: Containerise the eval runner, run it in CI on every PR, store results in a structured format (JSONL) with timestamps for trend detection. Replace heuristic completeness scoring with LLM-based evaluation. Add latency/p95 tracking. Calibrate judge against 20+ human-labeled examples to measure inter-rater reliability.
-
-## Known Limitations
-
-- **Mock data fallback**: When DataFrame is not injected, `lookup_customer` returns hardcoded mock profiles. Real integration would use a database.
-- **No persistence**: `log_interaction` and `escalate_to_supervisor` are in-memory only. Production needs a database or ticketing API.
-- **XGBoost underperforms LR**: In the notebook, XGBoost recall (0.546 CV) lags behind LogisticRegression (0.696 CV). With hyperparameter tuning (Optuna), XGBoost would likely surpass LR. Not tuned due to time budget.
-- **Judge reliability**: Single-pass LLM judging has positivity bias. Production should use 3 passes per case with median scoring, and flag cases with variance > 1.0.
-- **No streaming**: Agent responses are batch-only. Streaming would improve perceived latency in the UI.
+The lookup tool and escalation are in memory only. Real integration would use a database and ticketing API. The LLM judge uses a single pass which has positivity bias. Production would use 3 passes with median scoring. No streaming in the agent yet so responses are batch only.
