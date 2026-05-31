@@ -1,16 +1,16 @@
 # TeleConnect Churn Prediction & Retention Agent
 
-AI/ML Engineer take home assessment. Two parts: a churn prediction model and an LLM powered retention agent you can actually talk to.
+AI/ML Engineer take home assessment: churn prediction model (Jupyter notebook) and retention agent (Streamlit + LangGraph).
 
 **Live demo: [tele-churn.streamlit.app](https://tele-churn.streamlit.app)**
 
-## What it does
+## Overview
 
 TeleConnect has about 5,000 customers and 36% of them churn. This project helps retention reps figure out who is about to leave and what to do about it.
 
 Part 1 is a Jupyter notebook that cleans the messy data, explores churn patterns, trains two models from different families, and exports the better one.
 
-Part 2 is a Streamlit chatbot. You type something like "Customer TC-004711 might leave, what can we offer?" and it looks up the customer, runs the churn model, grabs relevant retention offers, and gives you a plain English recommendation. You can see every tool it called and what each one returned.
+Part 2 is a Streamlit chatbot for retention reps. Type a query like "Customer TC-004711 might leave, what can we offer?" — it looks up the customer, runs the churn model, fetches relevant offers, and returns a recommendation with full tool trace visibility.
 
 ## Screenshots
 
@@ -18,7 +18,7 @@ Part 2 is a Streamlit chatbot. You type something like "Customer TC-004711 might
 
 ![Billing consistency check](artifacts/screenshots/billing_consistency.png)
 
-The total_charges column doesn't always match monthly_charges times tenure. 31% of rows are off by more than $100. This is real world billing data: rounding, mid cycle changes, prorated charges. We keep it as signal, not noise.
+total_charges vs monthly_charges × tenure: 31% of rows off by more than $100. Rounding, mid-cycle changes, prorated charges. Kept as signal.
 
 ### EDA
 
@@ -32,21 +32,21 @@ Most churners leave in the first 20 months. After that they are invested and unl
 
 ![Churn by satisfaction](artifacts/screenshots/churn_satisfaction.png)
 
-Unhappy customers (satisfaction 0 to 2) churn at 3x the rate of happy ones. Makes sense but worth confirming with data.
+Satisfaction 0-2 churns at 3x the rate of 8-10.
 
 ### Model Evaluation
 
 ![Confusion matrices](artifacts/screenshots/confusion_matrices.png)
 
-XGBoost catches more churners (higher recall) but Logistic Regression has fewer false alarms. We optimized for recall since missing a churner costs revenue.
+XGBoost has higher recall; LogisticRegression has fewer false positives. Optimized for recall.
 
 ![ROC and PR curves](artifacts/screenshots/roc_pr_curves.png)
 
-Both models beat random by a wide margin. PR curve is the more honest metric for imbalanced data like ours.
+Both models beat random. PR curve is more informative than ROC for imbalanced data.
 
 ![Feature importance](artifacts/screenshots/feature_importance.png)
 
-Contract type and tenure dominate both models. If you only knew two things about a customer, those are the ones that matter.
+Contract type and tenure dominate both models.
 
 ## Setup
 
@@ -74,7 +74,7 @@ The agent uses LangGraph. When you send a message, the LLM decides which tool to
 
 Each tool is a separate node in a state graph. The router (LLM) picks the next node. The response node synthesizes everything into a readable recommendation. Adding a 6th tool is just adding one node and one edge.
 
-The model is an XGBoost classifier trained on 5,050 customer records. It uses 16 features including contract type, tenure, monthly charges, satisfaction score, and support ticket counts. Recall is the primary metric because missing a churner costs more than sending a coupon to someone who was not going to leave anyway.
+Trained on 5,050 records, 16 features. Recall is the primary metric: false negative (missed churner) costs more than false positive (unnecessary retention offer). After hyperparameter tuning XGBoost leads at recall 0.777 vs LR 0.760.
 
 ## Why these choices
 
