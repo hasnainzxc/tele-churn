@@ -93,13 +93,20 @@ df["service_density"] = (
     + (df["phone_clean"] == "Yes").astype(int)
 )
 
+# ── 3b. Recency feature ──
+
+ref_date = pd.to_datetime(df["last_interaction_date"]).max()
+df["days_since_last_interaction"] = (
+    ref_date - pd.to_datetime(df["last_interaction_date"])
+).dt.days
+
 # ── 4. Feature matrix ──
 
 num_cols = [
     "age", "tenure_months", "monthly_charges", "total_charges",
     "avg_monthly_gb_used", "num_support_tickets", "avg_monthly_minutes",
     "satisfaction_score", "num_additional_services",
-    "billing_ratio", "service_density",
+    "billing_ratio", "service_density", "days_since_last_interaction",
 ]
 cat_cols = [
     "contract_type", "gender_clean", "internet_clean",

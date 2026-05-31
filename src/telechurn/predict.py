@@ -101,8 +101,8 @@ def _fix_corrupted(val: float, col: str) -> float:
 def preprocess_customer(customer_data: dict[str, Any]) -> pd.DataFrame:
     df = pd.DataFrame([customer_data])
 
-    # Drop non-feature columns
-    drop_cols = {"customer_id", "churned", "last_interaction_date"}
+    # Drop non-feature columns (keep last_interaction_date for recency calc)
+    drop_cols = {"customer_id", "churned"}
     for c in drop_cols:
         if c in df.columns:
             df.drop(columns=c, inplace=True)
@@ -148,6 +148,20 @@ def preprocess_customer(customer_data: dict[str, Any]) -> pd.DataFrame:
     internet_yes = df["internet_clean"].iloc[0] not in ("No", "Unknown")
     phone_yes = df["phone_clean"].iloc[0] not in ("No", "Unknown")
     df["service_density"] = int(internet_yes) + int(phone_yes)
+
+    # Engineered feature: days since last interaction
+    # Reference date is the max date in the training dataset (2025-06-09).
+    # Higher values = customer hasn't interacted recently = more likely churn.
+    if "last_interaction_date" in df.columns:
+        try:
+            d = pd.to_datetime(df["last_interaction_date"].iloc[0])
+            reference = pd.Timestamp("2025-06-09")
+            df["days_since_last_interaction"] = (reference - d).days
+        except (ValueError, TypeError):
+            df["days_since_last_interaction"] = 365.0  # sane default
+        df.drop(columns="last_interaction_date", inplace=True)
+    else:
+        df["days_since_last_interaction"] = 365.0
 
     return df
 
@@ -213,7 +227,7 @@ def predict_churn(customer_data: dict[str, Any]) -> dict:
         "age", "tenure_months", "monthly_charges", "total_charges",
         "avg_monthly_gb_used", "num_support_tickets", "avg_monthly_minutes",
         "satisfaction_score", "num_additional_services",
-        "billing_ratio", "service_density",
+        "billing_ratio", "service_density", "days_since_last_interaction",
     ]
     cat_cols = [
         "contract_type", "gender_clean", "internet_clean",
