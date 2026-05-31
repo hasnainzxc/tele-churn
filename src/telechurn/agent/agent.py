@@ -297,127 +297,96 @@ class RetentionAgent:
 
         return "response"
 
-    def _lookup_customer(self, state: AgentState) -> AgentState:
-        """Extract customer_id from LLM args, run lookup, stash result in state."""
+    def _extract_tool_call(self, state: AgentState) -> tuple[dict, dict] | None:
+        """Pull tool_call metadata from the last AIMessage. Returns (tc, args) or None."""
         last_msg = state["messages"][-1]
         if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
-            return state
-        tool_calls = last_msg.tool_calls
-        tc = tool_calls[0]  # we only process the first tool call; batching not needed here
-        args = tc["args"]
-        customer_id = (args.get("customer_id", "") or "").strip()
+            return None
+        tc = last_msg.tool_calls[0]
+        return tc, tc["args"]
 
-        # Hard guard: LLM sometimes calls lookup with empty ID despite prompt rules.
+    def _record_tool(
+        self, state: AgentState, tool_name: str,
+        tc: dict, args: dict, result: dict,
+        stash_map: dict[str | None, str] | None = None,
+    ):
+        """Record trace, stash result keys into state, send ToolMessage back to LLM."""
+        state["tool_calls_made"].append({
+            "name": tool_name, "args": args, "result": result,
+        })
+        if stash_map:
+            for result_key, state_key in stash_map.items():
+                if result_key is None:
+                    state[state_key] = result
+                elif result_key in result:
+                    state[state_key] = result[result_key]
+        state["messages"].append(ToolMessage(
+            content=json.dumps(result), tool_call_id=tc["id"],
+        ))
+
+    def _lookup_customer(self, state: AgentState) -> AgentState:
+        extracted = self._extract_tool_call(state)
+        if extracted is None:
+            return state
+        tc, args = extracted
+
+        customer_id = (args.get("customer_id", "") or "").strip()
         if not customer_id:
             result = {
                 "customer": None,
-                "error": "Missing customer ID. Ask the rep for a valid customer ID (format TC-XXXXXX).",
+                "error": "Missing customer ID. Ask for a valid ID (format TC-XXXXXX).",
             }
         else:
             result = self._execute_lookup(customer_id)
-        # Record the invocation so the UI trace panel can render it.
-        state["tool_calls_made"].append({
-            "name": "lookup_customer",
-            "args": args,
-            "result": result,
-        })
-        if result.get("customer"):
-            state["customer_profile"] = result["customer"]
-            state["error"] = None
-        else:
-            state["error"] = result.get("error")
 
-        # Feed the result back to the LLM as a ToolMessage so it can decide next steps.
-        content = json.dumps(result)
-        state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
+        self._record_tool(state, "lookup_customer", tc, args, result,
+                          stash_map={"customer": "customer_profile", "error": "error"})
         return state
 
     def _predict_churn(self, state: AgentState) -> AgentState:
-        """Run churn model on customer data."""
-        last_msg = state["messages"][-1]
-        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        extracted = self._extract_tool_call(state)
+        if extracted is None:
             return state
-        tool_calls = last_msg.tool_calls
-        tc = tool_calls[0]
-        args = tc["args"]
-        # LLM sometimes passes the whole profile, sometimes just an empty dict.
-        # Fall back to whatever we already have in state from the lookup.
+        tc, args = extracted
+
         customer_data = args.get("customer_data", state.get("customer_profile", {}))
-
         result = self._execute_predict(customer_data)
-        state["tool_calls_made"].append({
-            "name": "predict_churn",
-            "args": args,
-            "result": result,
-        })
-        if result.get("prediction"):
-            state["churn_prediction"] = result["prediction"]
-
-        content = json.dumps(result)
-        state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
+        self._record_tool(state, "predict_churn", tc, args, result,
+                          stash_map={"prediction": "churn_prediction"})
         return state
 
     def _get_retention_offers(self, state: AgentState) -> AgentState:
-        """Query the offer catalog by risk_tier + contract_type, cap at 5 results."""
-        last_msg = state["messages"][-1]
-        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        extracted = self._extract_tool_call(state)
+        if extracted is None:
             return state
-        tool_calls = last_msg.tool_calls
-        tc = tool_calls[0]
-        args = tc["args"]
+        tc, args = extracted
+
         risk_tier = args.get("risk_tier", "medium")
         contract_type = args.get("contract_type", "Month-to-month")
-
         offers = get_offers(risk_tier, contract_type)
-        # Truncate to 5 — prevents dumping a wall of offers into the LLM context.
-        # The catalog already returns at most a few per combo, but belt-and-suspenders.
-        state["tool_calls_made"].append({
-            "name": "get_retention_offers",
-            "args": args,
-            "result": {"offers": offers[:5], "risk_tier": risk_tier, "contract_type": contract_type},
-        })
-        state["retention_offers"] = offers[:5]
-
-        content = json.dumps({"offers": offers[:5], "risk_tier": risk_tier, "contract_type": contract_type})
-        state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
+        result = {"offers": offers[:5], "risk_tier": risk_tier, "contract_type": contract_type}
+        self._record_tool(state, "get_retention_offers", tc, args, result,
+                          stash_map={"offers": "retention_offers"})
         return state
 
     def _log_interaction(self, state: AgentState) -> AgentState:
-        """Persist a conversation outcome log. Currently in-memory only (no DB)."""
-        last_msg = state["messages"][-1]
-        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        extracted = self._extract_tool_call(state)
+        if extracted is None:
             return state
-        tool_calls = last_msg.tool_calls
-        tc = tool_calls[0]
-        args = tc["args"]
-        log_entry = self._execute_log(args)
-        state["tool_calls_made"].append({
-            "name": "log_interaction",
-            "args": args,
-            "result": log_entry,
-        })
-        state["interaction_log"] = log_entry
-        content = json.dumps(log_entry)
-        state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
+        tc, args = extracted
+        result = self._execute_log(args)
+        self._record_tool(state, "log_interaction", tc, args, result,
+                          stash_map={None: "interaction_log"})
         return state
 
     def _escalate(self, state: AgentState) -> AgentState:
-        """Generate an escalation ticket. In-memory; real version POSTs to ticketing API."""
-        last_msg = state["messages"][-1]
-        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        extracted = self._extract_tool_call(state)
+        if extracted is None:
             return state
-        tool_calls = last_msg.tool_calls
-        tc = tool_calls[0]
-        args = tc["args"]
+        tc, args = extracted
         result = self._execute_escalate(args)
-        state["tool_calls_made"].append({
-            "name": "escalate_to_supervisor",
-            "args": args,
-            "result": result,
-        })
-        state["escalation"] = result
-        content = json.dumps(result)
-        state["messages"].append(ToolMessage(content=content, tool_call_id=tc["id"]))
+        self._record_tool(state, "escalate_to_supervisor", tc, args, result,
+                          stash_map={None: "escalation"})
         return state
 
     def _response(self, state: AgentState) -> AgentState:
