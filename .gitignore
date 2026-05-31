@@ -6,6 +6,7 @@ build/
 .venv/
 .env
 *.pkl
+!artifacts/*.pkl
 *.joblib
 .pytest_cache/
 .ruff_cache/
