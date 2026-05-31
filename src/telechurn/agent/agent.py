@@ -47,7 +47,7 @@ You have access to these tools:
 
 Rules:
 - Always look up a customer before predicting churn or getting offers for them.
-- If no customer_id is provided, ASK for it. Do not guess.
+- If no customer_id is provided, DO NOT call any tools. Respond asking for the customer ID (format TC-XXXXXX). Never call lookup_customer with an empty or guessed ID.
 - If customer threatens legal action, escalate immediately. Do not try retention offers.
 - If the situation is outside retention scope (sales, tech support, billing disputes), say so.
 - Synthesize a useful recommendation. Do not dump raw data.
@@ -305,9 +305,16 @@ class RetentionAgent:
         tool_calls = last_msg.tool_calls
         tc = tool_calls[0]  # we only process the first tool call; batching not needed here
         args = tc["args"]
-        customer_id = args.get("customer_id", "")
+        customer_id = (args.get("customer_id", "") or "").strip()
 
-        result = self._execute_lookup(customer_id)
+        # Hard guard: LLM sometimes calls lookup with empty ID despite prompt rules.
+        if not customer_id:
+            result = {
+                "customer": None,
+                "error": "Missing customer ID. Ask the rep for a valid customer ID (format TC-XXXXXX).",
+            }
+        else:
+            result = self._execute_lookup(customer_id)
         # Record the invocation so the UI trace panel can render it.
         state["tool_calls_made"].append({
             "name": "lookup_customer",
