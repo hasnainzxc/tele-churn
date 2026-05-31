@@ -200,26 +200,33 @@ def predict_churn(customer_data: dict[str, Any]) -> dict:
     else:
         risk_tier = "low"
 
-    # Extract top risk factors from LogisticRegression coefficients.
-    # Coefficients map to the transformed (scaled + one-hot) feature space.
-    # We reverse-map them to the original feature names via the preprocessor.
+    # Extract top risk factors. Strategy depends on classifier type:
+    # - LogisticRegression: uses .coef_ (directional per-feature weight)
+    # - XGBoost: uses .feature_importances_ (gain-based impurity reduction)
     classifier = pipeline.named_steps["classifier"]
     preprocessor = pipeline.named_steps["preprocessor"]
-
-    coeffs = classifier.coef_[0]
     feature_names_out = preprocessor.get_feature_names_out()
 
-    # Pair feature names with absolute coefficient magnitude
-    contributions = sorted(
-        [(feature_names_out[i], abs(coeffs[i])) for i in range(len(coeffs))],
-        key=lambda x: x[1], reverse=True,
-    )
+    if hasattr(classifier, "coef_"):
+        scores = abs(classifier.coef_[0])
+    elif hasattr(classifier, "feature_importances_"):
+        scores = classifier.feature_importances_
+    else:
+        scores = None
 
-    # Show top 3 features that contributed most to this prediction
-    top_risk_factors = [
-        {"feature": fn, "contribution": round(contrib, 4)}
-        for fn, contrib in contributions[:3]
-    ]
+    if scores is not None:
+        contributions = sorted(
+            [(feature_names_out[i], scores[i]) for i in range(len(scores))],
+            key=lambda x: x[1], reverse=True,
+        )
+        top_risk_factors = [
+            {"feature": fn, "contribution": round(contrib, 4)}
+            for fn, contrib in contributions[:3]
+        ]
+    else:
+        top_risk_factors = [
+            {"feature": "model_loaded", "contribution": "Model does not expose feature importance"}
+        ]
 
     return {
         "churn_probability": round(proba, 4),
