@@ -149,6 +149,47 @@ def preprocess_customer(customer_data: dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+# Module-level cache so predict_churn doesn't load/parse the pipeline
+# on every call. The pipeline (984KB XGBoost) deserializes once, then reuses.
+_pipeline: Pipeline | None = None
+_feature_names_out: list[str] | None = None
+_top_risk_factors_cached: list[dict[str, Any]] | None = None
+
+
+def _load_pipeline() -> tuple[Pipeline, list[str], list[dict[str, Any]]]:
+    global _pipeline, _feature_names_out, _top_risk_factors_cached
+    if _pipeline is not None:
+        return _pipeline, _feature_names_out, _top_risk_factors_cached
+
+    with open(ARTIFACT_PATH, "rb") as f:
+        _pipeline = pickle.load(f)
+
+    preprocessor = _pipeline.named_steps["preprocessor"]
+    classifier = _pipeline.named_steps["classifier"]
+    _feature_names_out = list(preprocessor.get_feature_names_out())
+
+    if hasattr(classifier, "coef_"):
+        scores = abs(classifier.coef_[0])
+    elif hasattr(classifier, "feature_importances_"):
+        scores = classifier.feature_importances_
+    else:
+        _top_risk_factors_cached = [
+            {"feature": "model_loaded", "contribution": "Model does not expose feature importance"}
+        ]
+        return _pipeline, _feature_names_out, _top_risk_factors_cached
+
+    contributions = sorted(
+        [(_feature_names_out[i], scores[i]) for i in range(len(scores))],
+        key=lambda x: x[1], reverse=True,
+    )
+    _top_risk_factors_cached = [
+        {"feature": fn, "contribution": round(contrib, 4)}
+        for fn, contrib in contributions[:3]
+    ]
+
+    return _pipeline, _feature_names_out, _top_risk_factors_cached
+
+
 def predict_churn(customer_data: dict[str, Any]) -> dict:
     if not ARTIFACT_PATH.exists():
         return {
@@ -160,8 +201,7 @@ def predict_churn(customer_data: dict[str, Any]) -> dict:
             ],
         }
 
-    with open(ARTIFACT_PATH, "rb") as f:
-        pipeline = pickle.load(f)
+    pipeline, _, top_risk_factors = _load_pipeline()
 
     df = preprocess_customer(customer_data)
 
@@ -199,34 +239,6 @@ def predict_churn(customer_data: dict[str, Any]) -> dict:
         risk_tier = "medium"
     else:
         risk_tier = "low"
-
-    # Extract top risk factors. Strategy depends on classifier type:
-    # - LogisticRegression: uses .coef_ (directional per-feature weight)
-    # - XGBoost: uses .feature_importances_ (gain-based impurity reduction)
-    classifier = pipeline.named_steps["classifier"]
-    preprocessor = pipeline.named_steps["preprocessor"]
-    feature_names_out = preprocessor.get_feature_names_out()
-
-    if hasattr(classifier, "coef_"):
-        scores = abs(classifier.coef_[0])
-    elif hasattr(classifier, "feature_importances_"):
-        scores = classifier.feature_importances_
-    else:
-        scores = None
-
-    if scores is not None:
-        contributions = sorted(
-            [(feature_names_out[i], scores[i]) for i in range(len(scores))],
-            key=lambda x: x[1], reverse=True,
-        )
-        top_risk_factors = [
-            {"feature": fn, "contribution": round(contrib, 4)}
-            for fn, contrib in contributions[:3]
-        ]
-    else:
-        top_risk_factors = [
-            {"feature": "model_loaded", "contribution": "Model does not expose feature importance"}
-        ]
 
     return {
         "churn_probability": round(proba, 4),

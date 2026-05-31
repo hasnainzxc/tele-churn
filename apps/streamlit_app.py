@@ -79,12 +79,10 @@ def main() -> None:
     # Streamlit re-runs the entire script on every interaction, so we stash
     # stateful objects here to persist them.
 
-    # Lazy-init agent — only create it once, reusing the DataFrame.
-    # Note: changing the model dropdown DOESN'T update an existing agent.
-    # That's a known quirk — you need to clear cache or add a model-changed
-    # check if it matters.
-    if "agent" not in st.session_state:
+    # Lazy-init agent. Recreate if model changed or never created.
+    if "agent" not in st.session_state or st.session_state.get("_model") != model:
         st.session_state.agent = RetentionAgent(model=model, df=df, predict_fn=predict_churn)
+        st.session_state._model = model
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -115,7 +113,15 @@ def main() -> None:
 
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
-                    result = st.session_state.agent.invoke(prompt)
+                    try:
+                        result = st.session_state.agent.invoke(prompt)
+                    except Exception as e:
+                        st.error(f"Agent error: {e}")
+                        st.info("Refresh the page or try a different prompt.")
+                        result = {
+                            "response": "Sorry, an error occurred. Please try again.",
+                            "tool_calls_made": [],
+                        }
 
                 # Show the agent's final text response
                 st.markdown(result["response"])

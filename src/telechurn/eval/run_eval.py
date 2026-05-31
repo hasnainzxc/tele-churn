@@ -109,10 +109,21 @@ def print_summary(results: list[dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
+    import pandas as pd
+
+    from telechurn.predict import predict_churn
+
     cases = load_test_cases()
     print(f"Loaded {len(cases)} test cases\n")
 
-    agent = RetentionAgent(model="openai/gpt-4o-mini")
+    DATA_PATH = _here.parents[3] / "test_datafile.csv"
+    df = pd.read_csv(DATA_PATH)
+
+    agent = RetentionAgent(
+        model="openai/gpt-4o-mini",
+        df=df,
+        predict_fn=predict_churn,
+    )
     results = run_eval(agent, cases)
     print_summary(results)
 
