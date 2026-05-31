@@ -9,15 +9,17 @@ Matches notebook preprocessing exactly:
 
 Run:  uv run python scripts/rebuild_pipeline.py
 """
-import pickle, warnings
-import pandas as pd
+import pickle
+import warnings
+
 import numpy as np
+import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, recall_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 warnings.filterwarnings("ignore")
 
@@ -139,6 +141,7 @@ print(classification_report(y_test, y_pred, digits=4))
 # ── 7. Save ──
 
 import os
+
 os.makedirs("artifacts", exist_ok=True)
 
 with open("artifacts/model_pipeline.pkl", "wb") as f:

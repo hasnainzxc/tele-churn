@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sklearn.pipeline import Pipeline
 
 ARTIFACT_PATH = Path(__file__).parent.parent.parent / "artifacts" / "model_pipeline.pkl"
 

@@ -6,8 +6,8 @@ import pandas as pd
 
 from telechurn.predict import (
     ARTIFACT_PATH,
-    preprocess_customer,
     predict_churn,
+    preprocess_customer,
 )
 
 
