@@ -183,7 +183,7 @@ def _load_pipeline() -> tuple[Pipeline, list[str], list[dict[str, Any]]]:
         key=lambda x: x[1], reverse=True,
     )
     _top_risk_factors_cached = [
-        {"feature": fn, "contribution": round(contrib, 4)}
+        {"feature": fn, "contribution": float(round(contrib, 4))}
         for fn, contrib in contributions[:3]
     ]
 
