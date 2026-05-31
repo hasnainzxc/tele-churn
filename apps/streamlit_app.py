@@ -51,11 +51,14 @@ DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "test_datafile.csv")
 
 
 def load_data() -> pd.DataFrame:
-    # Try the resolved DATA_PATH first, fall back to CWD for flexibility
-    # (e.g. if someone runs it from the project root directly).
     if os.path.exists(DATA_PATH):
         return pd.read_csv(DATA_PATH)
-    return pd.read_csv("test_datafile.csv")
+    if os.path.exists("test_datafile.csv"):
+        return pd.read_csv("test_datafile.csv")
+    raise FileNotFoundError(
+        f"Data file not found at {DATA_PATH} or ./test_datafile.csv. "
+        "Place test_datafile.csv in the project root."
+    )
 
 
 def main() -> None:

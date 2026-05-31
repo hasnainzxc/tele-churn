@@ -65,8 +65,12 @@ _COL_RENAME: dict[str, str] = {
 def _normalize_categorical(val: Any, col: str) -> str:
     if pd.isna(val) or str(val).strip().lower() in ("", "nan", "none"):
         return "Unknown"
+    key = str(val).strip().lower()
     mapping = _CATEGORY_MAPS.get(col, {})
-    return mapping.get(str(val).strip().lower(), str(val).strip().title())
+    if key in mapping:
+        return mapping[key]
+    # Value not in known mapping — silent "Unknown" prevents data leakage
+    return "Unknown"
 
 
 def _is_corrupted(val: float, col: str) -> bool:
@@ -127,9 +131,12 @@ def preprocess_customer(customer_data: dict[str, Any]) -> pd.DataFrame:
                 df[col] = _MEDIANS.get(col, 0.0)
 
     # Engineered feature: billing_ratio
-    monthly = max(df["monthly_charges"].iloc[0], 1.0)
-    tenure = max(df["tenure_months"].iloc[0], 1.0)
-    df["billing_ratio"] = df["total_charges"].iloc[0] / (monthly * tenure)
+    if all(c in df.columns for c in ("monthly_charges", "tenure_months", "total_charges")):
+        monthly = max(df["monthly_charges"].iloc[0], 1.0)
+        tenure = max(df["tenure_months"].iloc[0], 1.0)
+        df["billing_ratio"] = df["total_charges"].iloc[0] / (monthly * tenure)
+    else:
+        df["billing_ratio"] = 1.0
     df["billing_ratio"] = df["billing_ratio"].clip(0, 5.0)  # 99th percentile ~5
     if pd.isna(df["billing_ratio"].iloc[0]):
         df["billing_ratio"] = 1.0

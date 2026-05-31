@@ -17,7 +17,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 
@@ -184,20 +184,23 @@ class RetentionAgent:
     def __init__(
         self,
         model: str = "openai/gpt-4o-mini",
-        temperature: float = 0.1,
+        temperature: float = 0.3,
         df: pd.DataFrame | None = None,
-        predict_fn: Any = None,
+        predict_fn: Callable | None = None,
     ):
         self.model = model
         self.temperature = temperature
-        # df and predict_fn are injected so tests/eval can supply real data.
-        # When None, _execute_* methods fall back to hardcoded mock responses.
         self.df = df
         self.predict_fn = predict_fn
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY not set. Set it in .env or st.secrets."
+            )
         self.llm = ChatOpenAI(
             model=model,
             temperature=temperature,
-            api_key=os.environ.get("OPENROUTER_API_KEY", "sk-placeholder"),
+            api_key=api_key,
             base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         )
         # bind_tools turns TOOL_DESCRIPTIONS into OpenAI-compatible function-calling format.
@@ -296,7 +299,10 @@ class RetentionAgent:
 
     def _lookup_customer(self, state: AgentState) -> AgentState:
         """Extract customer_id from LLM args, run lookup, stash result in state."""
-        tool_calls = state["messages"][-1].tool_calls
+        last_msg = state["messages"][-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return state
+        tool_calls = last_msg.tool_calls
         tc = tool_calls[0]  # we only process the first tool call; batching not needed here
         args = tc["args"]
         customer_id = args.get("customer_id", "")
@@ -320,9 +326,11 @@ class RetentionAgent:
         return state
 
     def _predict_churn(self, state: AgentState) -> AgentState:
-        """Run churn model on customer data. Falls back to state['customer_profile']
-        if the LLM didn't pass explicit customer_data in args."""
-        tool_calls = state["messages"][-1].tool_calls
+        """Run churn model on customer data."""
+        last_msg = state["messages"][-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return state
+        tool_calls = last_msg.tool_calls
         tc = tool_calls[0]
         args = tc["args"]
         # LLM sometimes passes the whole profile, sometimes just an empty dict.
@@ -344,7 +352,10 @@ class RetentionAgent:
 
     def _get_retention_offers(self, state: AgentState) -> AgentState:
         """Query the offer catalog by risk_tier + contract_type, cap at 5 results."""
-        tool_calls = state["messages"][-1].tool_calls
+        last_msg = state["messages"][-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return state
+        tool_calls = last_msg.tool_calls
         tc = tool_calls[0]
         args = tc["args"]
         risk_tier = args.get("risk_tier", "medium")
@@ -366,7 +377,10 @@ class RetentionAgent:
 
     def _log_interaction(self, state: AgentState) -> AgentState:
         """Persist a conversation outcome log. Currently in-memory only (no DB)."""
-        tool_calls = state["messages"][-1].tool_calls
+        last_msg = state["messages"][-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return state
+        tool_calls = last_msg.tool_calls
         tc = tool_calls[0]
         args = tc["args"]
         log_entry = self._execute_log(args)
@@ -381,8 +395,11 @@ class RetentionAgent:
         return state
 
     def _escalate(self, state: AgentState) -> AgentState:
-        """Generate an escalation ticket. Also in-memory; real version would POST to a ticketing API."""
-        tool_calls = state["messages"][-1].tool_calls
+        """Generate an escalation ticket. In-memory; real version POSTs to ticketing API."""
+        last_msg = state["messages"][-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return state
+        tool_calls = last_msg.tool_calls
         tc = tool_calls[0]
         args = tc["args"]
         result = self._execute_escalate(args)

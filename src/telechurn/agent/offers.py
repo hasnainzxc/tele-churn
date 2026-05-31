@@ -171,13 +171,10 @@ def get_offers(risk_tier: str, contract_type: str) -> list[dict]:
     risk_tier = risk_tier.lower()
     tier_offers = OFFERS.get(risk_tier, OFFERS["medium"])  # fall back to medium if unknown
 
-    # HACK: .title() turns "month-to-month" → "Month-To-Month", but our dict keys
-    # use "Month-to-month" (lowercase 'to'). .title() breaks on hyphenated words
-    # because it capitalises after every hyphen. We use it anyway because the LLM
-    # tool description says exactly "Month-to-month", "One year", "Two year",
-    # and those pass through .title() identically: "Month-to-month" → "Month-To-Month".
-    # In practice the LLM sends the exact strings, so this doesn't blow up.
-    contract_type_clean = contract_type.strip().title()
+    contract_type = contract_type.strip()
+    # .title() breaks on hyphens ("Month-to-month" → "Month-To-Month").
+    # Our dict keys use lowercase after hyphen: "Month-to-month".
+    contract_type_clean = contract_type.replace("-", " ").title().replace(" ", "-")
 
     # Layer "all" offers first, then contract-specific ones on top.
     # This gives the rep a superset — generic deals + targeted offers.

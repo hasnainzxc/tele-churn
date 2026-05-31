@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -91,13 +92,23 @@ Return ONLY a JSON object. No markdown, no explanation.
 """
 
 
+_client: OpenAI | None = None
+
+
 def get_client() -> OpenAI:
-    # Lazy factory — no caching. Fine for batch eval but would want a singleton
-    # or reuse if doing many evals in a hot loop.
-    return OpenAI(
-        api_key=os.environ["OPENROUTER_API_KEY"],
+    global _client
+    if _client is not None:
+        return _client
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OPENROUTER_API_KEY not set. Set it in .env or st.secrets."
+        )
+    _client = OpenAI(
+        api_key=api_key,
         base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
     )
+    return _client
 
 
 def evaluate(
@@ -132,14 +143,14 @@ def evaluate(
     content = content.strip()
 
     # LLMs love wrapping JSON in ``` fences even when told not to. Strip them.
-    if content.startswith("```"):
-        content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
+    content = re.sub(r"^```(?:json)?\s*\n?|```\s*$", "", content.strip(), flags=re.DOTALL)
 
     try:
         scores = json.loads(content)
     except json.JSONDecodeError:
-        # Judge flaked — return zeros so aggregation still works, but the
-        # raw_output field lets us debug what the model actually returned.
+        scores = {}
+
+    if not scores or not isinstance(scores, dict):
         scores = {
             "factual_correctness": 0,
             "tool_use_appropriateness": 0,
