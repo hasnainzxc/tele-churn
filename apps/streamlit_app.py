@@ -1,11 +1,11 @@
 """Streamlit UI for TeleConnect Retention Agent.
 
 Modern chat interface with:
-- Branded dark/teal theme
+- Model status indicator (green dot = live)
+- Staggered tool trace animation
 - Risk gauge visualization
-- Tool cards with icons
-- Message bubble styling
-- Integrated tool trace inspector
+- Suggested follow-up prompts
+- Tool cards with step tracking
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Theme CSS ────────────────────────────────────────────────────────────
+# ── CSS ──────────────────────────────────────────────────────────────────
 
 _STYLE_PATH = Path(__file__).parent / "style.css"
 _CSS = _STYLE_PATH.read_text() if _STYLE_PATH.exists() else ""
@@ -43,13 +43,29 @@ _CSS = _STYLE_PATH.read_text() if _STYLE_PATH.exists() else ""
 # ── Tool metadata ────────────────────────────────────────────────────────
 
 _TOOL_META: dict[str, dict[str, str]] = {
-    "lookup_customer":        {"icon": "🔍", "label": "Customer Lookup",       "color": "#3b82f6"},
-    "predict_churn":          {"icon": "📊", "label": "Churn Prediction",      "color": "#8b5cf6"},
-    "get_retention_offers":   {"icon": "🎁", "label": "Retention Offers",      "color": "#f59e0b"},
-    "log_interaction":        {"icon": "📝", "label": "Interaction Log",       "color": "#10b981"},
-    "escalate_to_supervisor": {"icon": "🚨", "label": "Escalation",            "color": "#ef4444"},
+    "lookup_customer":        {"icon": "🔍", "label": "Lookup Customer",      "color": "#3b82f6"},
+    "predict_churn":          {"icon": "📊", "label": "Predict Churn",        "color": "#8b5cf6"},
+    "get_retention_offers":   {"icon": "🎁", "label": "Retention Offers",     "color": "#f59e0b"},
+    "log_interaction":        {"icon": "📝", "label": "Log Interaction",      "color": "#10b981"},
+    "escalate_to_supervisor": {"icon": "🚨", "label": "Escalate",             "color": "#ef4444"},
 }
 
+_TOOL_ICONS = {k: v["icon"] for k, v in _TOOL_META.items()}
+
+# ── Welcome prompts ──────────────────────────────────────────────────────
+
+_WELCOME_PROMPTS = [
+    ("👤 Look up customer", "Customer TC-004711"),
+    ("📊 Full retention check", "Retention check for TC-003011"),
+    ("⚠️ High risk review", "Customer TC-002385 is at risk, what can we offer?"),
+    ("🚨 Escalate", "Customer TC-003427 threatens to sue"),
+    ("📋 Batch review", "Review all high-risk customers"),
+    ("❓ Unhappy customer", "I have an unhappy customer, help"),
+    ("🔄 Contract upgrade", "Check TC-000527 for a contract upgrade offer"),
+    ("📝 Log interaction", "Log a call with TC-001836, offered 10% discount"),
+]
+
+# ── Helpers ──────────────────────────────────────────────────────────────
 
 def _risk_color(tier: str) -> tuple[str, str, str]:
     if tier == "high":
@@ -65,49 +81,45 @@ def _render_risk_gauge(prediction: dict) -> None:
     factors = prediction.get("top_risk_factors", [])
     pct_color, _, tier_class = _risk_color(tier)
 
-    html = f"""
-    <div class="risk-gauge">
-        <div class="label">Churn Probability</div>
-        <div class="value-row">
-            <span class="pct" style="color:{pct_color}">{proba * 100:.1f}%</span>
-            <span class="tier-badge {tier_class}">{html.escape(tier.upper())} RISK</span>
-        </div>
-    """
-    bar = (
-        '<div style="background:#0f172a;border-radius:8px;'
-        'height:8px;margin:0.5rem 0;overflow:hidden">'
-    )
-    html += bar
-    fill = (
-        '<div style="width:{}%;height:100%;'
-        'background:linear-gradient(90deg,#22c55e,#fbbf24,#ef4444);'
-        'border-radius:8px;transition:width 0.6s ease"></div>'
-    ).format(proba * 100)
-    html += fill
-    html += "</div>"
-
+    parts = [
+        '<div class="risk-gauge">',
+        '<div class="label">Churn Probability</div>',
+        '<div class="value-row">',
+        f'<span class="pct" style="color:{pct_color}">{proba * 100:.1f}%</span>',
+        f'<span class="tier-badge {tier_class}">{html.escape(tier.upper())} RISK</span>',
+        '</div>',
+        ('<div style="background:#0f172a;border-radius:8px;'
+         'height:8px;margin:0.5rem 0;overflow:hidden">'),
+        ('<div style="width:{}%;height:100%;'
+         'background:linear-gradient(90deg,#22c55e,#fbbf24,#ef4444);'
+         'border-radius:8px;transition:width 0.6s ease"></div>'
+         ).format(proba * 100),
+        '</div>',
+    ]
     if factors:
-        html += '<div class="factors">'
+        parts.append('<div class="factors">')
         for f in factors:
-            html += f'<span class="factor-chip">{html.escape(f["feature"])}</span>'
-        html += "</div>"
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+            parts.append(
+                f'<span class="factor-chip">{html.escape(f["feature"])}</span>'
+            )
+        parts.append('</div>')
+    parts.append('</div>')
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
-def _render_tool_card(call: dict, idx: int) -> None:
+def _render_tool_card(call: dict) -> None:
     name = call.get("name", "unknown_tool")
     meta = _TOOL_META.get(name, {"icon": "🔧", "label": name, "color": "#64748b"})
 
-    html = f"""
-    <div class="tool-card">
-        <div class="tool-header">
-            <span class="tool-icon">{meta["icon"]}</span>
-            <span class="tool-name" style="color:{meta["color"]}">{meta["label"]}</span>
-        </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
+    st.markdown(
+        f'<div class="tool-card">'
+        f'<div class="tool-header">'
+        f'<span class="tool-icon">{meta["icon"]}</span>'
+        f'<span class="tool-name" style="color:{meta["color"]}">{meta["label"]}</span>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
     col_a, col_b = st.columns(2)
     with col_a:
         st.caption("Input")
@@ -117,8 +129,60 @@ def _render_tool_card(call: dict, idx: int) -> None:
         st.json(call.get("result", {}))
 
 
-def _render_chat_message(role: str, content: str, tool_trace: list | None = None,
-                          prediction: dict | None = None) -> None:
+def _render_processing_steps(tool_trace: list[dict]) -> None:
+    if not tool_trace:
+        return
+    icons = [_TOOL_ICONS.get(c["name"], "🔧") for c in tool_trace]
+    labels = [_TOOL_META.get(c["name"], {}).get("label", c["name"]) for c in tool_trace]
+
+    parts = ['<div class="processing-steps">']
+    parts.append('<span class="step-label">Ran</span>')
+    for i, (icon, label) in enumerate(zip(icons, labels)):
+        if i > 0:
+            parts.append('<span class="step-arrow">→</span>')
+        parts.append(f'<span class="step-item">{icon} {label}</span>')
+    parts.append('</div>')
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+def _render_suggested_followups(tool_trace: list[dict]) -> None:
+    tool_names = {c["name"] for c in tool_trace}
+    suggestions = []
+
+    if "predict_churn" in tool_names:
+        suggestions.append("What offers are available for this customer?")
+    if "lookup_customer" in tool_names and "predict_churn" not in tool_names:
+        suggestions.append("Run a churn check on this customer")
+    if "escalate_to_supervisor" in tool_names:
+        suggestions.append("What happened with the escalation?")
+    if "get_retention_offers" in tool_names:
+        suggestions.append("Log this interaction for the record")
+    if not suggestions:
+        suggestions.append("Check another customer")
+
+    st.markdown(
+        '<div class="suggested-actions">'
+        '<div class="label">Try next</div>'
+        '<div class="chips">'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    cols = st.columns(len(suggestions))
+    for i, s in enumerate(suggestions):
+        with cols[i]:
+            if st.button(s, key=f"followup_{s[:20]}_{len(st.session_state.messages)}"):
+                st.session_state.messages.append({
+                    "role": "user", "content": s, "tool_trace": [],
+                })
+                st.rerun()
+
+
+def _render_chat_message(
+    role: str, content: str, tool_trace: list | None = None,
+    prediction: dict | None = None,
+) -> None:
     bubble_class = "user" if role == "user" else "assistant"
     with st.chat_message(role):
         st.markdown(
@@ -131,11 +195,12 @@ def _render_chat_message(role: str, content: str, tool_trace: list | None = None
             _render_risk_gauge(prediction)
 
         if tool_trace:
-            with st.expander("🔍 Tool Trace", expanded=bool(
-                any(c["name"] == "escalate_to_supervisor" for c in tool_trace)
-            )):
-                for i, call in enumerate(tool_trace):
-                    _render_tool_card(call, i)
+            _render_processing_steps(tool_trace)
+            with st.expander("🔍 Tool Trace", expanded=False):
+                for call in tool_trace:
+                    _render_tool_card(call)
+
+            _render_suggested_followups(tool_trace)
 
 
 def _extract_prediction(tool_trace: list[dict]) -> dict | None:
@@ -162,14 +227,6 @@ def _load_data() -> pd.DataFrame:
 
 # ── Welcome screen ───────────────────────────────────────────────────────
 
-_WELCOME_PROMPTS = [
-    ("👤 Look up", "Customer TC-004711"),
-    ("📊 Full check", "Retention check for TC-004711"),
-    ("⚠️ Risk review", "I have a high-risk customer — what offers?"),
-    ("🚨 Escalate", "Customer TC-003427 threatens to sue"),
-]
-
-
 def _render_welcome() -> None:
     st.markdown("""
     <div class="welcome-screen">
@@ -177,19 +234,21 @@ def _render_welcome() -> None:
         <h2>TeleConnect Retention Assistant</h2>
         <div class="desc">
             AI-powered churn prevention. Look up customers, predict churn risk,
-            and get actionable retention offers — all in real time.
+            and get actionable retention offers in real time.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown('<div class="welcome-prompt-grid">', unsafe_allow_html=True)
     cols = st.columns(2)
     for i, (label, prompt) in enumerate(_WELCOME_PROMPTS):
         with cols[i % 2]:
-            if st.button(f"{label}\n\n_{prompt}_", key=f"welcome_{i}", use_container_width=True):
+            if st.button(label, key=f"welcome_{i}", help=prompt):
                 st.session_state.messages.append({
                     "role": "user", "content": prompt, "tool_trace": [],
                 })
                 st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────
@@ -207,12 +266,12 @@ def _render_sidebar(model: str) -> str:
         st.markdown("### 📡 About")
         st.markdown("""
         **TeleConnect Retention Agent** uses a real XGBoost churn model
-        trained on 5,050 customer records to predict churn risk and
-        recommend retention offers.
+        trained on 5,050 customer records. It chains lookup, prediction,
+        and retention offers into one conversation.
 
         Built with LangGraph + OpenRouter.
         """)
-        st.caption("Tool calls trace shown inline with each response.")
+        st.caption("Each response shows what tools ran and in what order.")
     return model
 
 
@@ -232,8 +291,17 @@ def main() -> None:
     # ── Header ──
     st.markdown("""
     <div class="tele-header">
-        <h1>📡 TeleConnect Retention Agent</h1>
-        <div class="subtitle">AI-powered churn prevention &amp; retention</div>
+        <div>
+            <h1>📡 TeleConnect Retention Agent</h1>
+            <div class="subtitle">AI-powered churn prevention &amp; retention</div>
+        </div>
+        <div class="header-right">
+            <div class="status-dot">
+                <span class="dot green"></span> Model active
+            </div>
+            <span class="header-badge">XGBoost 0.777 recall</span>
+            <span class="header-badge">5,050 customers</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -254,7 +322,6 @@ def main() -> None:
 
     model = _render_sidebar("openai/gpt-4o-mini")
 
-    # Session init — recreate agent when model changes.
     if "agent" not in st.session_state or st.session_state.get("_model") != model:
         st.session_state.agent = RetentionAgent(model=model, df=df, predict_fn=predict_churn)
         st.session_state._model = model
@@ -263,17 +330,15 @@ def main() -> None:
         st.session_state.messages = []
 
     # ── Chat history ──
-    chat_container = st.container()
-    with chat_container:
-        if not st.session_state.messages:
-            _render_welcome()
-        else:
-            for msg in st.session_state.messages:
-                pred = _extract_prediction(msg.get("tool_trace", []))
-                _render_chat_message(
-                    msg["role"], msg["content"],
-                    msg.get("tool_trace"), pred,
-                )
+    if not st.session_state.messages:
+        _render_welcome()
+    else:
+        for msg in st.session_state.messages:
+            pred = _extract_prediction(msg.get("tool_trace", []))
+            _render_chat_message(
+                msg["role"], msg["content"],
+                msg.get("tool_trace"), pred,
+            )
 
     # ── Chat input ──
     if prompt := st.chat_input("Ask about a customer or retention strategy..."):
@@ -281,7 +346,7 @@ def main() -> None:
             "role": "user", "content": prompt, "tool_trace": [],
         })
 
-        with st.spinner(""):
+        with st.spinner("Thinking..."):
             try:
                 result = st.session_state.agent.invoke(prompt)
             except Exception as e:

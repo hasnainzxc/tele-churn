@@ -9,10 +9,15 @@
 
 /* ── Header ── */
 .tele-header {
-    padding: 1.5rem 2rem;
+    padding: 1.2rem 2rem;
     background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
     border-bottom: 1px solid rgba(56, 189, 248, 0.15);
     margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
 }
 .tele-header h1 {
     color: #e2e8f0;
@@ -25,6 +30,42 @@
     color: #94a3b8;
     font-size: 0.85rem;
     margin-top: 0.25rem;
+}
+.tele-header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.status-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+.status-dot .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.status-dot .dot.green {
+    background: #22c55e;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+    animation: pulse 2s infinite;
+}
+.status-dot .dot.red {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+.header-badge {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.15);
+    color: #7dd3fc;
+    padding: 0.25rem 0.65rem;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-family: 'Inter', sans-serif;
 }
 
 /* ── Sidebar ── */
@@ -70,6 +111,51 @@ section[data-testid="stSidebar"] h3 {
     border-bottom-left-radius: 4px;
 }
 
+/* ── Processing summary ── */
+.processing-steps {
+    background: #1a2332;
+    border: 1px solid rgba(56, 189, 248, 0.1);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin: 0.5rem 1rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    color: #94a3b8;
+    animation: fadeIn 0.2s ease;
+}
+.processing-steps .step-label {
+    color: #64748b;
+    margin-right: 0.5rem;
+}
+.processing-steps .step-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #38bdf8;
+}
+.processing-steps .step-arrow {
+    color: #475569;
+    margin: 0 0.35rem;
+}
+
+/* ── Suggested follow-ups ── */
+.suggested-actions {
+    margin: 0.75rem 1rem;
+    animation: fadeIn 0.4s ease 0.2s both;
+}
+.suggested-actions .label {
+    color: #64748b;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+.suggested-actions .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
 /* ── Risk gauge ── */
 .risk-gauge {
     background: #1e293b;
@@ -77,6 +163,7 @@ section[data-testid="stSidebar"] h3 {
     border-radius: 14px;
     padding: 1.25rem;
     margin: 0.75rem 1rem;
+    animation: fadeIn 0.4s ease 0.1s both;
 }
 .risk-gauge .label {
     color: #94a3b8;
@@ -135,6 +222,9 @@ section[data-testid="stSidebar"] h3 {
 }
 
 /* ── Tool cards ── */
+.tool-trace-container {
+    margin: 0.5rem 1rem;
+}
 .tool-card {
     background: #1a2332;
     border: 1px solid rgba(56, 189, 248, 0.1);
@@ -142,7 +232,13 @@ section[data-testid="stSidebar"] h3 {
     padding: 0.9rem 1.1rem;
     margin: 0.5rem 0;
     transition: border-color 0.2s;
+    animation: fadeIn 0.35s ease both;
 }
+.tool-card:nth-child(1) { animation-delay: 0.1s; }
+.tool-card:nth-child(2) { animation-delay: 0.2s; }
+.tool-card:nth-child(3) { animation-delay: 0.3s; }
+.tool-card:nth-child(4) { animation-delay: 0.4s; }
+.tool-card:nth-child(5) { animation-delay: 0.5s; }
 .tool-card:hover {
     border-color: rgba(56, 189, 248, 0.3);
 }
@@ -189,8 +285,8 @@ section[data-testid="stSidebar"] h3 {
 /* ── Welcome screen ── */
 .welcome-screen {
     text-align: center;
-    padding: 4rem 2rem;
-    max-width: 560px;
+    padding: 3rem 2rem 2rem 2rem;
+    max-width: 640px;
     margin: 0 auto;
 }
 .welcome-screen .icon {
@@ -207,29 +303,14 @@ section[data-testid="stSidebar"] h3 {
     color: #94a3b8;
     font-size: 0.9rem;
     line-height: 1.6;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
 }
 .welcome-prompt-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
-    max-width: 480px;
+    gap: 0.6rem;
+    max-width: 520px;
     margin: 0 auto;
-}
-.welcome-prompt-btn {
-    background: #1e293b;
-    border: 1px solid rgba(56, 189, 248, 0.12);
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-    text-align: left;
-    color: #cbd5e1;
-    font-size: 0.82rem;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.welcome-prompt-btn:hover {
-    border-color: #38bdf8;
-    background: #233044;
 }
 
 /* ── Overrides ── */
@@ -254,6 +335,30 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
 hr {
     border-color: rgba(56, 189, 248, 0.08) !important;
 }
+.stButton button {
+    width: 100%;
+    background: #1e293b !important;
+    border: 1px solid rgba(56, 189, 248, 0.12) !important;
+    border-radius: 10px !important;
+    color: #cbd5e1 !important;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem !important;
+    padding: 0.75rem 1rem !important;
+    text-align: left !important;
+    transition: all 0.2s;
+    white-space: normal !important;
+    height: auto !important;
+    min-height: unset !important;
+}
+.stButton button:hover {
+    border-color: #38bdf8 !important;
+    background: #233044 !important;
+    color: #e2e8f0 !important;
+}
+.stButton button p {
+    color: inherit !important;
+    font-size: inherit !important;
+}
 
 /* ── Animations ── */
 @keyframes fadeIn {
@@ -263,4 +368,8 @@ hr {
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.5; }
+}
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: translateX(0); }
 }
