@@ -346,17 +346,31 @@ def main() -> None:
             "role": "user", "content": prompt, "tool_trace": [],
         })
 
-        with st.spinner("Thinking..."):
+        with st.chat_message("user"):
+            st.markdown(
+                f'<div class="chat-bubble user">{html.escape(prompt)}</div>',
+                unsafe_allow_html=True,
+            )
+
+        with st.status("Processing your request...", expanded=False) as status:
             try:
+                st.write("Running agent pipeline...")
                 result = st.session_state.agent.invoke(prompt)
+                tool_trace = result.get("tool_calls_made", [])
+                for i, call in enumerate(tool_trace):
+                    meta = _TOOL_META.get(call["name"], {})
+                    st.write(f"{meta.get('icon', '')} {meta.get('label', call['name'])} — done")
+                steps_label = "1 step" if len(tool_trace) == 1 else f"{len(tool_trace)} steps"
+                status.update(label=f"Completed — {steps_label}", state="complete")
             except Exception as e:
+                status.update(label="Error", state="error")
                 st.error(f"Agent error: {e}")
                 result = {
                     "response": "Sorry, an error occurred. Please try again.",
                     "tool_calls_made": [],
                 }
+                tool_trace = []
 
-        tool_trace = result.get("tool_calls_made", [])
         st.session_state.messages.append({
             "role": "assistant",
             "content": result["response"],
