@@ -244,9 +244,7 @@ def _render_welcome() -> None:
     for i, (label, prompt) in enumerate(_WELCOME_PROMPTS):
         with cols[i % 2]:
             if st.button(label, key=f"welcome_{i}", help=prompt):
-                st.session_state.messages.append({
-                    "role": "user", "content": prompt, "tool_trace": [],
-                })
+                st.session_state._pending = prompt
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -328,23 +326,21 @@ def main() -> None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "_pending" not in st.session_state:
+        st.session_state._pending = None
 
-    # ── Chat history ──
-    if not st.session_state.messages:
-        _render_welcome()
-    else:
-        for msg in st.session_state.messages:
-            pred = _extract_prediction(msg.get("tool_trace", []))
-            _render_chat_message(
-                msg["role"], msg["content"],
-                msg.get("tool_trace"), pred,
-            )
+    # ── Process pending prompt (from welcome buttons or chat input) ──
+    pending = st.session_state._pending
+    chat_prompt = st.chat_input("Ask about a customer or retention strategy...")
+    prompt = pending or chat_prompt
 
-    # ── Chat input ──
-    if prompt := st.chat_input("Ask about a customer or retention strategy..."):
-        st.session_state.messages.append({
-            "role": "user", "content": prompt, "tool_trace": [],
-        })
+    if prompt:
+        if pending:
+            st.session_state._pending = None
+        else:
+            st.session_state.messages.append({
+                "role": "user", "content": prompt, "tool_trace": [],
+            })
 
         with st.chat_message("user"):
             st.markdown(
@@ -360,8 +356,8 @@ def main() -> None:
                 for i, call in enumerate(tool_trace):
                     meta = _TOOL_META.get(call["name"], {})
                     st.write(f"{meta.get('icon', '')} {meta.get('label', call['name'])} — done")
-                steps_label = "1 step" if len(tool_trace) == 1 else f"{len(tool_trace)} steps"
-                status.update(label=f"Completed — {steps_label}", state="complete")
+                step_count = "1 step" if len(tool_trace) == 1 else f"{len(tool_trace)} steps"
+                status.update(label=f"Completed — {step_count}", state="complete")
             except Exception as e:
                 status.update(label="Error", state="error")
                 st.error(f"Agent error: {e}")
@@ -378,6 +374,17 @@ def main() -> None:
         })
 
         st.rerun()
+
+    # ── Chat history ──
+    if not st.session_state.messages:
+        _render_welcome()
+    else:
+        for msg in st.session_state.messages:
+            pred = _extract_prediction(msg.get("tool_trace", []))
+            _render_chat_message(
+                msg["role"], msg["content"],
+                msg.get("tool_trace"), pred,
+            )
 
 
 if __name__ == "__main__":
