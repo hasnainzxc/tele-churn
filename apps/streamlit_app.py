@@ -145,18 +145,29 @@ def _render_processing_steps(tool_trace: list[dict]) -> None:
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 
+def _get_customer_id_from_trace(tool_trace: list[dict]) -> str | None:
+    for call in tool_trace:
+        if call["name"] == "lookup_customer":
+            cid = call.get("args", {}).get("customer_id", "").strip()
+            if cid:
+                return cid
+    return None
+
+
 def _render_suggested_followups(tool_trace: list[dict]) -> None:
+    customer_id = _get_customer_id_from_trace(tool_trace)
+    suffix = f" for {customer_id}" if customer_id else ""
     tool_names = {c["name"] for c in tool_trace}
     suggestions = []
 
     if "predict_churn" in tool_names:
-        suggestions.append("What offers are available for this customer?")
+        suggestions.append(f"What offers are available{suffix}?")
     if "lookup_customer" in tool_names and "predict_churn" not in tool_names:
-        suggestions.append("Run a churn check on this customer")
+        suggestions.append(f"Run a churn check{suffix}")
     if "escalate_to_supervisor" in tool_names:
-        suggestions.append("What happened with the escalation?")
+        suggestions.append(f"What happened with the escalation{suffix}?")
     if "get_retention_offers" in tool_names:
-        suggestions.append("Log this interaction for the record")
+        suggestions.append(f"Log this interaction{suffix}")
     if not suggestions:
         suggestions.append("Check another customer")
 
