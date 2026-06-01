@@ -154,19 +154,20 @@ def _get_customer_id_from_trace(tool_trace: list[dict]) -> str | None:
     return None
 
 
-def _render_suggested_followups(tool_trace: list[dict]) -> None:
+def _render_suggested_followups(tool_trace: list[dict], msg_idx: int) -> None:
     customer_id = _get_customer_id_from_trace(tool_trace)
-    suffix = f" for {customer_id}" if customer_id else ""
-    tool_names = {c["name"] for c in tool_trace}
-    suggestions = []
 
-    if "predict_churn" in tool_names:
-        suggestions.append(f"What offers are available{suffix}?")
-    if "lookup_customer" in tool_names and "predict_churn" not in tool_names:
+    suggestions: list[str] = []
+    suffix = f" for {customer_id}" if customer_id else ""
+
+    has_lookup = any(c["name"] == "lookup_customer" for c in tool_trace)
+    has_predict = any(c["name"] == "predict_churn" for c in tool_trace)
+
+    if has_predict:
+        suggestions.append(f"What offers are available{suffix}")
+    if has_lookup and not has_predict:
         suggestions.append(f"Run a churn check{suffix}")
-    if "escalate_to_supervisor" in tool_names:
-        suggestions.append(f"What happened with the escalation{suffix}?")
-    if "get_retention_offers" in tool_names:
+    if has_lookup:
         suggestions.append(f"Log this interaction{suffix}")
     if not suggestions:
         suggestions.append("Check another customer")
@@ -183,14 +184,14 @@ def _render_suggested_followups(tool_trace: list[dict]) -> None:
     cols = st.columns(len(suggestions))
     for i, s in enumerate(suggestions):
         with cols[i]:
-            if st.button(s, key=f"followup_{s[:20]}_{len(st.session_state.messages)}"):
+            if st.button(s, key=f"followup_{msg_idx}_{i}"):
                 st.session_state._pending = s
                 st.rerun()
 
 
 def _render_chat_message(
     role: str, content: str, tool_trace: list | None = None,
-    prediction: dict | None = None,
+    prediction: dict | None = None, msg_idx: int = 0,
 ) -> None:
     bubble_class = "user" if role == "user" else "assistant"
     with st.chat_message(role):
@@ -209,7 +210,7 @@ def _render_chat_message(
                 for call in tool_trace:
                     _render_tool_card(call)
 
-            _render_suggested_followups(tool_trace)
+            _render_suggested_followups(tool_trace, msg_idx)
 
 
 def _extract_prediction(tool_trace: list[dict]) -> dict | None:
@@ -388,11 +389,11 @@ def main() -> None:
     if not st.session_state.messages:
         _render_welcome()
     else:
-        for msg in st.session_state.messages:
+        for i, msg in enumerate(st.session_state.messages):
             pred = _extract_prediction(msg.get("tool_trace", []))
             _render_chat_message(
                 msg["role"], msg["content"],
-                msg.get("tool_trace"), pred,
+                msg.get("tool_trace"), pred, msg_idx=i,
             )
 
 
