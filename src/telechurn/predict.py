@@ -145,8 +145,10 @@ def preprocess_customer(customer_data: dict[str, Any]) -> pd.DataFrame:
         df["billing_ratio"] = 1.0
 
     # Engineered feature: service_density
-    internet_yes = df["internet_clean"].iloc[0] not in ("No", "Unknown")
-    phone_yes = df["phone_clean"].iloc[0] not in ("No", "Unknown")
+    internet_val = df["internet_clean"].iloc[0] if "internet_clean" in df.columns else "Unknown"
+    phone_val = df["phone_clean"].iloc[0] if "phone_clean" in df.columns else "Unknown"
+    internet_yes = internet_val not in ("No", "Unknown")
+    phone_yes = phone_val not in ("No", "Unknown")
     df["service_density"] = int(internet_yes) + int(phone_yes)
 
     # Engineered feature: days since last interaction
