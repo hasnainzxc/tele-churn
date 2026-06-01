@@ -84,7 +84,9 @@ def parameter_extraction_precision(
     return {"score": round(score, 3), "details": details}
 
 
-def response_completeness(expected_criteria: dict[str, Any], actual_response: str) -> dict[str, Any]:
+def response_completeness(
+    expected_criteria: dict[str, Any], actual_response: str
+) -> dict[str, Any]:
     """Score response completeness using heuristic keyword/rules matching.
 
     Falls back to structural checks when no criteria specified:

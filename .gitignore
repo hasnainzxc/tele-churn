@@ -19,3 +19,6 @@ build/
 
 # Assessment docs (not part of deliverable)
 *.docx
+
+# Playwright browser test artifacts
+.playwright-mcp/

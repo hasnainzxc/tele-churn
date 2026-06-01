@@ -55,7 +55,8 @@ class TestParameterExtraction:
 
 class TestResponseCompleteness:
     def test_good_response(self):
-        result = response_completeness({}, "I recommend offering the 15% discount to customer TC-004711.")
+        test_str = "I recommend offering the 15% discount to customer TC-004711."
+        result = response_completeness({}, test_str)
         assert result["score"] > 0.5
 
     def test_short_response(self):
@@ -63,7 +64,8 @@ class TestResponseCompleteness:
         assert result["score"] < 0.5
 
     def test_actionable_response(self):
-        result = response_completeness({}, "I suggest escalating this case to a supervisor immediately.")
+        test_str = "I suggest escalating this case to a supervisor immediately."
+        result = response_completeness({}, test_str)
         assert result["score"] > 0.5
 
 

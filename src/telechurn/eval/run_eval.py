@@ -10,10 +10,10 @@ from typing import Any
 _here = Path(__file__).resolve().parent
 sys.path.insert(0, str(_here.parent.parent.parent))
 
-from telechurn.agent.agent import RetentionAgent
-from telechurn.eval.judge import aggregate as judge_aggregate
-from telechurn.eval.judge import evaluate as judge_evaluate
-from telechurn.eval.metrics import (
+from telechurn.agent.agent import RetentionAgent  # noqa: E402
+from telechurn.eval.judge import aggregate as judge_aggregate  # noqa: E402
+from telechurn.eval.judge import evaluate as judge_evaluate  # noqa: E402
+from telechurn.eval.metrics import (  # noqa: E402
     parameter_extraction_precision,
     response_completeness,
     tool_selection_accuracy,

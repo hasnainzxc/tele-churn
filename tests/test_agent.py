@@ -456,7 +456,7 @@ class TestRetentionAgent:
         expected = {"router", "lookup_customer", "predict_churn",
                     "get_retention_offers", "log_interaction", "escalate", "response"}
         if nodes:
-            assert expected.issubset(set(nodes)) or True  # graph.nodes may differ by langgraph version
+            assert expected.issubset(set(nodes)) or True  # langgraph may differ by version
 
     def test_invoke_with_customer_id(self, sample_df):
         agent = RetentionAgent(df=sample_df)

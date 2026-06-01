@@ -23,14 +23,19 @@ from dotenv import load_dotenv
 
 _load_dotenv = load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
-import pandas as pd
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
-from langgraph.graph import END, START, StateGraph
-from langgraph.graph.state import CompiledStateGraph
-from typing_extensions import TypedDict
+import pandas as pd  # noqa: E402
+from langchain_core.messages import (  # noqa: E402
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_openai import ChatOpenAI  # noqa: E402
+from langgraph.graph import END, START, StateGraph  # noqa: E402
+from langgraph.graph.state import CompiledStateGraph  # noqa: E402
+from typing_extensions import TypedDict  # noqa: E402
 
-from .offers import get_offers
+from .offers import get_offers  # noqa: E402
 
 # This prompt is the whole steering wheel. The LLM gets it as a SystemMessage
 # every single turn (router + response nodes). Small wording changes here
