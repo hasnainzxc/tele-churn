@@ -173,9 +173,7 @@ def _render_suggested_followups(tool_trace: list[dict]) -> None:
     for i, s in enumerate(suggestions):
         with cols[i]:
             if st.button(s, key=f"followup_{s[:20]}_{len(st.session_state.messages)}"):
-                st.session_state.messages.append({
-                    "role": "user", "content": s, "tool_trace": [],
-                })
+                st.session_state._pending = s
                 st.rerun()
 
 
